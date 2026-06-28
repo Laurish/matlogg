@@ -170,15 +170,17 @@ const DEFAULT_MODEL = 'claude-opus-4-8';
 /* ---------- standardskafferi (kan ändras/tas bort i appen) ---------- */
 /* unit: 'g'/'ml' => kcal & protein per 100 enheter · 'st' => per styck */
 const DEFAULT_FOODS = [
+  { id:'f-ris-ra',   name:'Ris (okokt)',       unit:'g',  kcal:360, protein:6.7 },
   { id:'f-ris',      name:'Ris (kokt)',        unit:'g',  kcal:130, protein:2.7 },
-  { id:'f-potatis',  name:'Potatis (kokt)',    unit:'g',  kcal:87,  protein:2.0 },
+  { id:'f-pasta-ra', name:'Pasta (okokt)',     unit:'g',  kcal:371, protein:13 },
   { id:'f-pasta',    name:'Pasta (kokt)',      unit:'g',  kcal:158, protein:5.8 },
-  { id:'f-havre',    name:'Havregryn',         unit:'g',  kcal:370, protein:13 },
+  { id:'f-potatis',  name:'Potatis (rå)',      unit:'g',  kcal:77,  protein:2.0 },
+  { id:'f-havre',    name:'Havregryn (torr)',  unit:'g',  kcal:370, protein:13 },
   { id:'f-ragbrod',  name:'Rågbröd',           unit:'g',  kcal:250, protein:8 },
   { id:'f-olivolja', name:'Olivolja',          unit:'ml', kcal:884, protein:0 },
   { id:'f-smor',     name:'Smör',              unit:'g',  kcal:717, protein:0.9 },
   { id:'f-agg',      name:'Ägg',               unit:'st', kcal:78,  protein:6.3 },
-  { id:'f-kyckling', name:'Kycklingfilé (stekt)', unit:'g', kcal:165, protein:31 },
+  { id:'f-kyckling', name:'Kycklingfilé (rå)', unit:'g',  kcal:106, protein:23 },
   { id:'f-fars',     name:'Nötfärs 10% (rå)',  unit:'g',  kcal:176, protein:19 },
   { id:'f-kvarg',    name:'Kvarg (mager)',     unit:'g',  kcal:60,  protein:11 },
   { id:'f-mjolk',    name:'Mjölk (mellan)',    unit:'ml', kcal:47,  protein:3.4 },
