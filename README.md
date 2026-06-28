@@ -62,3 +62,6 @@ från enklast till mest "riktig" synk:
 
 Kort sagt: ja, automatisk synk behöver en server eller en molntjänst. Mappsynk är det enklaste
 mellansteget om man vill slippa det.
+
+📋 En konkret implementationsplan för Supabase-synk (tabell, RLS, auth, synkflöde, hosting) finns
+i [TODO.md](TODO.md).
