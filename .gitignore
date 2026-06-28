@@ -1,6 +1,9 @@
 # Säkerhetskopior – innehåller personlig mat- och kroppsdata, hör inte hemma i git
 matlogg-backup-*.json
 
+# Lokal Claude-konfiguration (maskinspecifik)
+.claude/settings.local.json
+
 # OS-skräp
 .DS_Store
 Thumbs.db
