@@ -1,0 +1,6 @@
+# Säkerhetskopior – innehåller personlig mat- och kroppsdata, hör inte hemma i git
+matlogg-backup-*.json
+
+# OS-skräp
+.DS_Store
+Thumbs.db
