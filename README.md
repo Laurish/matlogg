@@ -18,7 +18,8 @@ internet är den valfria AI-uppskattningen.
   - Redigera eller ta bort loggade måltider.
 - **Kropp** – registrera vikt och midjemått, se grafer med glidande medel.
 - **Trender** – snitt och utveckling över 7 / 30 / 90 dagar.
-- **Mål** – dagliga kcal-/proteinmål och kroppsmål (mållinjer i graferna).
+- **Mål** – dagliga kcal-/proteinmål och kroppsmål (mållinjer i graferna). Valfri **hyllning med
+  ljud** när dagens proteinmål nås (kan slås av/på).
 - **Skafferi** – eget livsmedelsbibliotek med näringsvärden per 100 g / 100 ml / styck. Förfyllt med
   vanliga baslivsmedel som du kan ändra, ta bort eller återställa.
 

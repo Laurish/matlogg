@@ -122,6 +122,24 @@
   .edit-actions{display:flex; gap:8px;}
   .edit-actions .btn{flex:1; padding:9px;}
   .btn-ghost{background:#F0F1EC; color:var(--muted);}
+  /* firande vid nått mål */
+  .celebrate{position:fixed; inset:0; z-index:10001; display:flex; align-items:center; justify-content:center;
+             background:rgba(31,36,33,.45); opacity:0; pointer-events:none; transition:opacity .2s;}
+  .celebrate.show{opacity:1; pointer-events:auto;}
+  .celebrate-card{background:var(--card); border:1px solid var(--border); border-radius:20px; padding:28px 32px;
+                  text-align:center; box-shadow:0 16px 50px rgba(0,0,0,.28); transform:scale(.85); transition:transform .25s;}
+  .celebrate.show .celebrate-card{transform:scale(1); animation:pop .45s ease;}
+  .celebrate-emoji{font-size:48px; line-height:1;}
+  .celebrate-title{font-size:19px; font-weight:800; margin-top:10px; color:var(--green);}
+  .celebrate-sub{font-size:13px; color:var(--muted); margin-top:4px;}
+  @keyframes pop{0%{transform:scale(.85)}50%{transform:scale(1.06)}100%{transform:scale(1)}}
+  .toggle-row{display:flex; align-items:center; gap:10px; padding:11px 0; font-size:15px; cursor:pointer;}
+  .toggle-row + .toggle-row{border-top:1px solid var(--border);}
+  .toggle-row input[type=checkbox]{width:auto; margin:0; padding:0; border:0; box-shadow:none; accent-color:var(--green); transform:scale(1.2);}
+  @media (prefers-reduced-motion: reduce){
+    .celebrate.show .celebrate-card{animation:none;}
+    .celebrate-card{transition:none;}
+  }
 </style>
 </head>
 <body>
@@ -199,7 +217,7 @@ function uid(){ return Date.now()+'-'+Math.random().toString(36).slice(2,8); }
 
 let meals = load(LS.meals, {});
 let body  = load(LS.body, []);
-let settings = load(LS.settings, { kcalGoal:'', proteinGoal:'', targetWeight:'', targetWaist:'' });
+let settings = load(LS.settings, { kcalGoal:'', proteinGoal:'', targetWeight:'', targetWaist:'', celebrateProtein:true, celebrateSound:true });
 let foods = load(LS.foods, DEFAULT_FOODS);
 let apiKey = load(LS.apikey, '');
 let aiModel = load(LS.aimodel, DEFAULT_MODEL);
@@ -220,6 +238,52 @@ function toast(msg, isErr){
   el.textContent = msg; el.className = 'toast show'+(isErr?' err':'');
   clearTimeout(toastTimer);
   toastTimer = setTimeout(function(){ el.className = 'toast'+(isErr?' err':''); }, 3200);
+}
+
+/* ---------- firande när proteinmålet nås ---------- */
+let audioCtx = null;
+let celebrateTimer = null;
+function playChime(){
+  try{
+    const AC = window.AudioContext || window.webkitAudioContext; if(!AC) return;
+    audioCtx = audioCtx || new AC();
+    if(audioCtx.state==='suspended') audioCtx.resume();
+    const t0 = audioCtx.currentTime;
+    [{f:659.25,t:0},{f:783.99,t:0.12},{f:1046.5,t:0.24}].forEach(function(n){ // E5–G5–C6
+      const o=audioCtx.createOscillator(), g=audioCtx.createGain();
+      o.type='sine'; o.frequency.value=n.f; o.connect(g); g.connect(audioCtx.destination);
+      const s=t0+n.t;
+      g.gain.setValueAtTime(0.0001, s);
+      g.gain.exponentialRampToValueAtTime(0.22, s+0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, s+0.35);
+      o.start(s); o.stop(s+0.4);
+    });
+  }catch(e){}
+}
+function fireCelebration(){
+  let el = document.getElementById('celebrate');
+  if(!el){
+    el = document.createElement('div'); el.id='celebrate'; el.className='celebrate';
+    el.setAttribute('role','status');
+    el.addEventListener('click', function(){ el.classList.remove('show'); });
+    document.body.appendChild(el);
+  }
+  const pg = parseFloat(settings.proteinGoal)||0;
+  el.innerHTML = '<div class="celebrate-card"><div class="celebrate-emoji">🎉</div>'
+    + '<div class="celebrate-title">Proteinmålet nått!</div>'
+    + '<div class="celebrate-sub">'+totalsFor(day).protein+' g av '+pg+' g i dag</div></div>';
+  el.classList.add('show');
+  clearTimeout(celebrateTimer);
+  celebrateTimer = setTimeout(function(){ el.classList.remove('show'); }, 2800);
+  if(settings.celebrateSound!==false) playChime();
+}
+// fira bara vid uppåtgående passage av målet, för dagens datum
+function maybeCelebrate(prevProtein){
+  if(day!==todayStr()) return;
+  if(settings.celebrateProtein===false) return;
+  const pg = parseFloat(settings.proteinGoal)||0; if(pg<=0) return;
+  const now = totalsFor(day).protein;
+  if(prevProtein < pg && now >= pg) fireCelebration();
 }
 
 /* ---------- livsmedelshjälpare ---------- */
@@ -657,6 +721,12 @@ function malHTML(){
   +     '<div><div class="small" style="margin-top:0;margin-bottom:4px">Målmått mage</div><div class="field-wrap"><input id="g-waist" type="number" inputmode="decimal" placeholder="t.ex. 85" value="'+escapeHTML(settings.targetWaist)+'"><span class="field-suffix">cm</span></div>'+remain(latestWa,tWa,'cm')+'</div>'
   +   '</div>'
   + '</div>'
+  + '<div class="card hero-pad">'
+  +   '<div class="chart-title">Firande</div>'
+  +   '<div class="hint" style="margin-bottom:6px">En liten hyllning när du når dagens proteinmål.</div>'
+  +   '<label class="toggle-row"><input type="checkbox" id="c-celebrate"'+(settings.celebrateProtein!==false?' checked':'')+'> Visa en hyllning vid nått proteinmål</label>'
+  +   '<label class="toggle-row"><input type="checkbox" id="c-sound"'+(settings.celebrateSound!==false?' checked':'')+'> Spela ett litet ljud</label>'
+  + '</div>'
   + '<div class="card" style="padding:14px 16px"><div class="small" style="margin-top:0">Allt sparas automatiskt medan du skriver.</div></div>';
 }
 
@@ -775,6 +845,7 @@ function wireToday(){
     else if(a==='edit-meal'){ editingMealId=b.dataset.id; render(); const d=$('#edit-desc'); if(d){ d.focus(); d.select(); } }
     else if(a==='edit-cancel'){ editingMealId=null; render(); }
     else if(a==='edit-save'){
+      const prevProtein = totalsFor(day).protein;
       const id=b.dataset.id, arr=meals[day]||[], idx=arr.findIndex(e=>e.id===id);
       if(idx>=0){
         const d=($('#edit-desc').value||'').trim();
@@ -783,14 +854,15 @@ function wireToday(){
           protein: Math.max(0,Math.round(parseFloat($('#edit-protein').value)||0)) });
         save(LS.meals, meals);
       }
-      editingMealId=null; render();
+      editingMealId=null; maybeCelebrate(prevProtein); render();
     }
     else if(a==='builder-del'){ builderRows.splice(parseInt(b.dataset.i,10),1); render(); }
     else if(a==='ai-edit'){ aiEditing=true; render(); }
     else if(a==='quick'){
+      const prevProtein = totalsFor(day).protein;
       const entry = { id: uid(), type: mealType,
         desc: b.dataset.desc, kcal: Number(b.dataset.kcal)||0, protein: Number(b.dataset.protein)||0 };
-      meals[day] = (meals[day]||[]).concat(entry); save(LS.meals, meals); render();
+      meals[day] = (meals[day]||[]).concat(entry); save(LS.meals, meals); maybeCelebrate(prevProtein); render();
     }
   };
   $('#m-add').onclick = addMeal;
@@ -818,6 +890,7 @@ function addBuilderRow(){
 }
 
 function addMeal(){
+  const prevProtein = totalsFor(day).protein;
   // bygger man från skafferiet skapas en måltid av summan
   if(builderRows.length){
     const sum = builderSum();
@@ -826,6 +899,7 @@ function addMeal(){
     meals[day] = (meals[day]||[]).concat({ id: uid(), type: mealType, desc: typed||auto, kcal: sum.kcal, protein: sum.protein });
     save(LS.meals, meals);
     builderRows = [];
+    maybeCelebrate(prevProtein);
     render();
     toast('Måltid tillagd från skafferiet.');
     return;
@@ -839,6 +913,7 @@ function addMeal(){
   };
   meals[day] = (meals[day]||[]).concat(entry);
   save(LS.meals, meals);
+  maybeCelebrate(prevProtein);
   render();
 }
 
@@ -879,6 +954,8 @@ function wireMal(){
   }
   bind('#g-kcal','kcalGoal'); bind('#g-protein','proteinGoal');
   bind('#g-weight','targetWeight'); bind('#g-waist','targetWaist');
+  const cc=$('#c-celebrate'); if(cc) cc.onchange=function(){ settings.celebrateProtein=cc.checked; save(LS.settings, settings); };
+  const cs=$('#c-sound'); if(cs) cs.onchange=function(){ settings.celebrateSound=cs.checked; save(LS.settings, settings); if(cs.checked) playChime(); };
 }
 
 function wireChartTooltips(){
