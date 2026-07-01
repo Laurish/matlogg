@@ -46,6 +46,10 @@ Idag körs appen lokalt från filen. För att kunna nå den från **flera enhete
 Browsers tillåter PWA-installation bara i ett "säkert sammanhang" (https eller localhost), därför
 syns ingen installationsknapp när filen öppnas direkt via `file://`.
 
+Appen har nu en **service worker** (`sw.js`) som registreras automatiskt när den serveras över
+http(s). Den cachar appfilerna så att appen fungerar helt offline och blir installerbar.
+Vid ny release: bumpa `CACHE_VERSION` i `sw.js` så gamla cachade filer rensas.
+
 ⚠️ **Obs:** `localStorage` är knutet till *origin*. Data du loggat via `file://` följer inte
 automatiskt med till `http://localhost` eller en webbadress. Byter du sätt att öppna appen:
 exportera en säkerhetskopia först och importera den på det nya stället.
