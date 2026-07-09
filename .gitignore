@@ -2,7 +2,7 @@
 matlogg-backup-*.json
 
 # Lokal Claude-konfiguration (maskinspecifik)
-.claude/settings.local.json
+.claude/
 
 # OS-skräp
 .DS_Store
