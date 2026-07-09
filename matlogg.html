@@ -152,6 +152,25 @@
   .edit-actions{display:flex; gap:8px;}
   .edit-actions .btn{flex:1; padding:9px;}
   .btn-ghost{background:var(--surface3); color:var(--muted);}
+  /* favoriter & återanvänd tidigare dag */
+  .icon-btn.fav-on{color:var(--amber);}
+  .chip-star{color:var(--amber); font-size:12px; line-height:1;}
+  .method-row{display:flex; gap:8px; margin-top:12px;}
+  .method-btn{flex:1; display:flex; align-items:center; justify-content:center; gap:6px;
+              border:1px solid var(--border); background:var(--input-bg); color:var(--muted);
+              border-radius:10px; padding:8px 4px; font-size:13px; font-weight:500; cursor:pointer;}
+  .method-btn.active{background:var(--ink); color:var(--card); border-color:var(--ink);}
+  .copy-src{display:flex; gap:8px; padding:12px 16px 4px; flex-wrap:wrap; align-items:center;}
+  .copy-src .range-btn{flex:0 1 auto; padding:7px 12px;}
+  .copy-src input[type=date]{width:auto; flex:1; min-width:132px; padding:6px 10px; font-size:13px; border-radius:10px;}
+  .copy-row{width:100%; text-align:left; display:flex; align-items:center; gap:10px; padding:10px 16px;
+            border:0; border-top:1px solid var(--border); background:none; color:var(--ink);
+            font-size:14px; font-family:inherit; cursor:pointer;}
+  .copy-row:first-of-type{border-top:0;}
+  .copy-row:hover{background:var(--surface-box);}
+  .copy-row .plus{color:var(--icon); line-height:0; flex-shrink:0;}
+  .copy-type{width:72px; flex-shrink:0; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.06em; color:var(--muted);}
+  .copy-desc{flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
   /* firande vid nått mål */
   .celebrate{position:fixed; inset:0; z-index:10001; display:flex; align-items:center; justify-content:center;
              background:rgba(31,36,33,.45); opacity:0; pointer-events:none; transition:opacity .2s;}
@@ -223,6 +242,8 @@ const leftSVG = '<svg aria-hidden="true" focusable="false" width="18" height="18
 const rightSVG = '<svg aria-hidden="true" focusable="false" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>';
 const sparkleSVG = '<svg aria-hidden="true" focusable="false" width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l1.7 5.6L19.5 9l-5.8 1.4L12 16l-1.7-5.6L4.5 9l5.8-1.4z"/></svg>';
 const pencilSVG = '<svg aria-hidden="true" focusable="false" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>';
+const starSVG = '<svg aria-hidden="true" focusable="false" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26"/></svg>';
+const starFillSVG = '<svg aria-hidden="true" focusable="false" width="15" height="15" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26"/></svg>';
 
 /* ---------- AI ---------- */
 const MODELS = [
@@ -254,7 +275,7 @@ const DEFAULT_FOODS = [
 ];
 
 /* ---------- lagring (sparas på din dator) ---------- */
-const LS = { meals:'matlogg.meals', body:'matlogg.body', settings:'matlogg.settings', apikey:'matlogg.apikey', aimodel:'matlogg.aimodel', foods:'matlogg.foods', lastExport:'matlogg.lastExport' };
+const LS = { meals:'matlogg.meals', body:'matlogg.body', settings:'matlogg.settings', apikey:'matlogg.apikey', aimodel:'matlogg.aimodel', foods:'matlogg.foods', favorites:'matlogg.favorites', lastExport:'matlogg.lastExport' };
 function load(k, fb){ try{ const v=localStorage.getItem(k); return v?JSON.parse(v):fb; }catch(e){ return fb; } }
 function save(k, v){
   try{ localStorage.setItem(k, JSON.stringify(v)); }
@@ -289,6 +310,26 @@ let builderRows = [];   // transient: rader i livsmedelsbyggaren på Idag
 let editingMealId = null; // id på måltid som redigeras inline
 let foodFilter = ''; // sökfilter i skafferiet
 let editingFoodId = null; // id på livsmedel som redigeras inline i Skafferi
+let favorites = load(LS.favorites, []); // stjärnmärkta rätter: {id, desc, kcal, protein}
+let copySource = null; // vald källdag i "kopiera från annan dag" (null = dagen innan)
+
+/* ---------- favoriter ---------- */
+function favKey(desc){ return (desc||'').trim().toLowerCase(); }
+function isFavorite(desc){ const k=favKey(desc); return favorites.some(f=>favKey(f.desc)===k); }
+function toggleFavorite(entry){
+  const k = favKey(entry.desc); if(!k) return;
+  const idx = favorites.findIndex(f=>favKey(f.desc)===k);
+  if(idx>=0){ favorites.splice(idx,1); toast('Borttagen ur favoriter.'); }
+  else { favorites.push({ id: uid(), desc: entry.desc, kcal: entry.kcal||0, protein: entry.protein||0 }); toast('Sparad som favorit — finns nu alltid i Snabbval.'); }
+  save(LS.favorites, favorites);
+}
+
+/* metod i lägg till-kortet: 'ai' | 'skafferi' | 'manuell' */
+function addMethod(){
+  const m = settings.addMethod;
+  if(m==='ai'||m==='skafferi'||m==='manuell') return m;
+  return apiKey ? 'ai' : 'manuell';
+}
 
 /* ---------- liten toast (notiser) ---------- */
 let toastTimer = null;
@@ -374,6 +415,7 @@ function withMA(data, key, win){ win=win||7; return data.map((d,i)=>{ const s=da
 function mealTypeLabel(id){ const m=MEAL_TYPES.find(x=>x.id===id); return m?m.label.toLowerCase():''; }
 function recentMeals(limit){
   limit = limit||12; const seen={}, out=[];
+  favorites.forEach(function(f){ seen[favKey(f.desc)]=1; }); // favoriter visas separat
   const dates = Object.keys(meals).sort().reverse();
   for(const d of dates){
     const arr = (meals[d]||[]).slice().reverse();
@@ -554,8 +596,10 @@ function mealRowHTML(e){
       +   '<button class="btn btn-primary" data-act="edit-save" data-id="'+e.id+'">Spara</button>'
       + '</div></div>';
   }
+  const fav = isFavorite(e.desc);
   return '<div class="row"><div class="row-desc">'+escapeHTML(e.desc)+'</div>'
     +'<div class="row-macros"><span class="amber">'+e.kcal+'</span><span class="dot">·</span><span class="green">'+e.protein+'g</span></div>'
+    +'<button class="icon-btn'+(fav?' fav-on':'')+'" data-act="fav-meal" data-id="'+e.id+'" aria-label="'+(fav?'Ta bort ur favoriter':'Spara som favorit')+'" title="'+(fav?'Ta bort ur favoriter':'Spara som favorit')+'">'+(fav?starFillSVG:starSVG)+'</button>'
     +'<button class="icon-btn" data-act="edit-meal" data-id="'+e.id+'" aria-label="Redigera måltid">'+pencilSVG+'</button>'
     +'<button class="icon-btn" data-act="del-meal" data-id="'+e.id+'" aria-label="Ta bort måltid">'+trashSVG+'</button></div>';
 }
@@ -592,6 +636,44 @@ function builderHTML(){
     +   '<button class="btn ai-btn" id="b-add-row" style="width:auto;white-space:nowrap">'+plusSVG+' Rad</button>'
     + '</div>'
     + (builderRows.length ? '<div class="hint" style="margin-top:8px">Tryck <strong>Lägg till måltid</strong> nedan för att spara summan som en måltid.</div>' : '')
+    + '</div>';
+}
+
+function copyCardHTML(){
+  // visas bara om det finns loggade måltider på någon annan dag än den visade
+  const hasHistory = Object.keys(meals).some(function(d){ return d!==day && (meals[d]||[]).length>0; });
+  if(!hasHistory) return '';
+  const isToday = day===todayStr();
+  const d1 = shiftDay(day,-1), d7 = shiftDay(day,-7);
+  const src = copySource || d1;
+  const srcMeals = meals[src]||[];
+  function pick(iso,lbl){ return '<button class="range-btn'+(src===iso?' active':'')+'" data-act="copy-src" data-src="'+iso+'">'+lbl+'</button>'; }
+  let rows='';
+  MEAL_TYPES.forEach(function(m){
+    srcMeals.filter(function(e){ return e.type===m.id; }).forEach(function(e){
+      rows += '<button class="copy-row" data-act="copy-meal" data-src="'+src+'" data-id="'+e.id+'" title="Kopiera till '+(isToday?'idag':prettyDate(day))+'">'
+        + '<span class="copy-type">'+m.label+'</span>'
+        + '<span class="copy-desc">'+escapeHTML(e.desc)+'</span>'
+        + '<span class="row-macros"><span class="amber">'+e.kcal+'</span><span class="dot">·</span><span class="green">'+e.protein+'g</span></span>'
+        + '<span class="plus">'+plusSVG+'</span>'
+        + '</button>';
+    });
+  });
+  const t = totalsFor(src);
+  const content = src===day
+    ? '<div class="hint" style="padding:12px 16px 14px;margin-top:0">Det är dagen du redan tittar på — välj en annan dag ovan.</div>'
+    : srcMeals.length
+    ? rows + '<div style="padding:10px 16px 14px"><button class="btn btn-ghost" data-act="copy-day" data-src="'+src+'">Kopiera hela dagen ('+t.kcal+' kcal · '+t.protein+' g)</button></div>'
+    : '<div class="hint" style="padding:12px 16px 14px;margin-top:0">Inget loggat '+prettyDate(src)+'. Välj en annan dag ovan.</div>';
+  return '<div class="card">'
+    + '<div class="group-head"><span>Kopiera från en annan dag</span>'
+    +   '<span class="muted" style="font-weight:400;font-size:12px">till '+(isToday?'idag':prettyDate(day))+'</span></div>'
+    + '<div class="copy-src">'
+    +   pick(d1, isToday?'Igår':'Dagen innan')
+    +   pick(d7, isToday?'Förra veckan':'Veckan innan')
+    +   '<input type="date" id="copy-date" value="'+src+'" max="'+todayStr()+'" aria-label="Välj dag att kopiera från">'
+    + '</div>'
+    + content
     + '</div>';
 }
 
@@ -633,19 +715,33 @@ function todayHTML(){
   }).join('');
   const empty = (meals[day]||[]).length===0 ? '<div class="card empty">Inga måltider loggade än. Lägg till din första ovan.</div>' : '';
 
-  const recent = recentMeals(12);
-  const quickCard = recent.length ? '<div class="card quick-card">'
-    + '<div class="quick-head">Snabbval <span class="muted" style="font-weight:400">· läggs till i <span id="quick-target">'+mealTypeLabel(mealType)+'</span></span></div>'
+  const favsSorted = favorites.slice().sort(function(a,b){ return a.desc.localeCompare(b.desc,'sv'); });
+  const recent = recentMeals(Math.max(4, 12-favsSorted.length));
+  function chipHTML(r, star){
+    return '<button class="chip" data-act="quick" data-desc="'+escapeHTML(r.desc)+'" data-kcal="'+r.kcal+'" data-protein="'+r.protein+'" title="'+escapeHTML(r.desc)+'">'
+      + (star?'<span class="chip-star" aria-hidden="true">★</span>':'')
+      + '<span class="chip-desc">'+escapeHTML(r.desc)+'</span><span class="chip-macros">'+r.kcal+'·'+r.protein+'g</span></button>';
+  }
+  const quickCard = (favsSorted.length || recent.length) ? '<div class="card quick-card">'
+    + '<div class="quick-head">Snabbval <span class="muted" style="font-weight:400">· ★ = favorit · läggs till i <span id="quick-target">'+mealTypeLabel(mealType)+'</span></span></div>'
     + '<div class="chips">'
-    + recent.map(r=>'<button class="chip" data-act="quick" data-desc="'+escapeHTML(r.desc)+'" data-kcal="'+r.kcal+'" data-protein="'+r.protein+'" title="'+escapeHTML(r.desc)+'">'
-        + '<span class="chip-desc">'+escapeHTML(r.desc)+'</span><span class="chip-macros">'+r.kcal+'·'+r.protein+'g</span></button>').join('')
+    + favsSorted.map(function(r){ return chipHTML(r, true); }).join('')
+    + recent.map(function(r){ return chipHTML(r, false); }).join('')
     + '</div></div>' : '';
 
   const pills = MEAL_TYPES.map(m=>'<button class="pill'+(mealType===m.id?' active':'')+'" data-type="'+m.id+'">'+m.label+'</button>').join('');
 
-  const descHint = (apiKey && !aiEditing)
-    ? 'Tryck på AI-knappen, eller skriv in värdena själv.'
-    : 'Fyll i kcal och protein nedan, eller aktivera AI-uppskattning.';
+  const method = addMethod();
+  const descHint =
+      method==='skafferi' ? 'Beskrivningen är valfri — lämnar du den tom namnges måltiden efter raderna nedan.'
+    : method==='manuell'  ? 'Fyll i kcal och protein nedan.'
+    : (apiKey && !aiEditing) ? 'Tryck på AI-knappen, eller skriv in värdena själv.'
+    : 'Klistra in en API-nyckel nedan för att aktivera AI-uppskattning.';
+
+  const methodRow = '<div class="method-row" role="radiogroup" aria-label="Sätt att fylla i näringsvärden">'
+    + [{m:'ai',   l:sparkleSVG+' AI'}, {m:'skafferi', l:'Skafferi'}, {m:'manuell', l:'Manuellt'}]
+      .map(function(o){ return '<button class="method-btn'+(method===o.m?' active':'')+'" data-act="method" data-m="'+o.m+'" role="radio" aria-checked="'+(method===o.m)+'">'+o.l+'</button>'; }).join('')
+    + '</div>';
 
   const aiSection = (apiKey && !aiEditing)
     ? '<div class="ai-model-row"><span class="hint" style="margin-top:0">Modell</span>'
@@ -683,15 +779,19 @@ function todayHTML(){
   +   '<div class="pills">'+pills+'</div>'
   +   '<input id="m-desc" type="text" placeholder="t.ex. två ägg, en skiva rågbröd med smör och ost">'
   +   '<div class="hint">'+descHint+'</div>'
-  +   aiSection
-  +   builderHTML()
-  +   '<div class="grid2" style="margin-top:12px">'
-  +     '<div class="field-wrap"><input id="m-kcal" type="number" inputmode="decimal" placeholder="0"><span class="field-suffix">kcal</span></div>'
-  +     '<div class="field-wrap"><input id="m-protein" type="number" inputmode="decimal" placeholder="0"><span class="field-suffix">g protein</span></div>'
-  +   '</div>'
+  +   methodRow
+  +   (method==='ai' ? aiSection : '')
+  +   (method==='skafferi' ? builderHTML() : '')
+  +   (method!=='skafferi'
+      ? '<div class="grid2" style="margin-top:12px">'
+        + '<div class="field-wrap"><input id="m-kcal" type="number" inputmode="decimal" placeholder="0"><span class="field-suffix">kcal</span></div>'
+        + '<div class="field-wrap"><input id="m-protein" type="number" inputmode="decimal" placeholder="0"><span class="field-suffix">g protein</span></div>'
+        + '</div>'
+      : '')
   +   '<button class="btn btn-primary" id="m-add" style="margin-top:12px">'+plusSVG+' Lägg till måltid</button>'
   + '</div>'
   + quickCard
+  + copyCardHTML()
   + (empty || groups);
 }
 
@@ -950,10 +1050,37 @@ function wireToday(){
       return;
     }
     const a = b.dataset.act;
-    if(a==='prev'){ day=shiftDay(day,-1); render(); }
-    else if(a==='next'){ if(day!==todayStr()){ day=shiftDay(day,1); render(); } }
-    else if(a==='today'){ day=todayStr(); render(); }
+    if(a==='prev'){ day=shiftDay(day,-1); copySource=null; render(); }
+    else if(a==='next'){ if(day!==todayStr()){ day=shiftDay(day,1); copySource=null; render(); } }
+    else if(a==='today'){ day=todayStr(); copySource=null; render(); }
     else if(a==='del-meal'){ if(confirm('Ta bort den här måltiden?')){ meals[day]=(meals[day]||[]).filter(e=>e.id!==b.dataset.id); save(LS.meals,meals); render(); } }
+    else if(a==='fav-meal'){
+      const entry = (meals[day]||[]).find(e=>e.id===b.dataset.id);
+      if(entry){ toggleFavorite(entry); render(); }
+    }
+    else if(a==='method'){ settings.addMethod = b.dataset.m; save(LS.settings, settings); render(); }
+    else if(a==='copy-src'){ copySource = b.dataset.src; render(); }
+    else if(a==='copy-meal'){
+      const srcArr = meals[b.dataset.src]||[];
+      const e = srcArr.find(x=>x.id===b.dataset.id);
+      if(e){
+        const prevProtein = totalsFor(day).protein;
+        meals[day] = (meals[day]||[]).concat({ id: uid(), type: e.type, desc: e.desc, kcal: e.kcal, protein: e.protein });
+        save(LS.meals, meals); maybeCelebrate(prevProtein); render();
+        toast('Kopierad: '+e.desc);
+      }
+    }
+    else if(a==='copy-day'){
+      const srcArr = meals[b.dataset.src]||[];
+      if(srcArr.length){
+        const prevProtein = totalsFor(day).protein;
+        meals[day] = (meals[day]||[]).concat(srcArr.map(function(e){
+          return { id: uid(), type: e.type, desc: e.desc, kcal: e.kcal, protein: e.protein };
+        }));
+        save(LS.meals, meals); maybeCelebrate(prevProtein); render();
+        toast('Kopierade '+srcArr.length+' måltid'+(srcArr.length===1?'':'er')+' från '+prettyDate(b.dataset.src)+'.');
+      }
+    }
     else if(a==='edit-meal'){ editingMealId=b.dataset.id; render(); const d=$('#edit-desc'); if(d){ d.focus(); d.select(); } }
     else if(a==='edit-cancel'){ editingMealId=null; render(); }
     else if(a==='edit-save'){
@@ -978,10 +1105,11 @@ function wireToday(){
     }
   };
   $('#m-add').onclick = addMeal;
-  $('#m-protein').onkeydown = function(e){ if(e.key==='Enter') addMeal(); };
+  if($('#m-protein')) $('#m-protein').onkeydown = function(e){ if(e.key==='Enter') addMeal(); };
   if($('#b-add-row')) $('#b-add-row').onclick = addBuilderRow;
   if($('#b-amount')) $('#b-amount').onkeydown = function(e){ if(e.key==='Enter') addBuilderRow(); };
-  if($('#m-desc')) $('#m-desc').onkeydown = function(e){ if(e.key==='Enter' && apiKey && !aiEditing) runEstimate(); };
+  if($('#m-desc')) $('#m-desc').onkeydown = function(e){ if(e.key==='Enter' && addMethod()==='ai' && apiKey && !aiEditing) runEstimate(); };
+  if($('#copy-date')) $('#copy-date').onchange = function(){ if(this.value){ copySource = this.value; render(); } };
   if($('#ai-est')) $('#ai-est').onclick = runEstimate;
   if($('#ai-model')) $('#ai-model').onchange = function(){ aiModel = this.value; save(LS.aimodel, aiModel); };
   if($('#ai-save')) $('#ai-save').onclick = function(){
@@ -1016,6 +1144,7 @@ function addMeal(){
     toast('Måltid tillagd från skafferiet.');
     return;
   }
+  if(addMethod()==='skafferi'){ toast('Lägg till minst en rad från skafferiet först.', true); return; }
   const desc = $('#m-desc').value.trim(); if(!desc) return;
   const entry = {
     id: uid(),
@@ -1091,8 +1220,8 @@ function wireChartTooltips(){
 function backupStatus(msg, color){ const s=$('#backup-status'); if(s){ s.style.color=color||'var(--muted)'; s.textContent=msg||''; } }
 
 function exportData(){
-  const payload = { app:'matlogg', version:2, exportedAt:new Date().toISOString(),
-    meals: meals, body: body, settings: settings, foods: foods, aimodel: aiModel };
+  const payload = { app:'matlogg', version:3, exportedAt:new Date().toISOString(),
+    meals: meals, body: body, settings: settings, foods: foods, favorites: favorites, aimodel: aiModel };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type:'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -1146,7 +1275,15 @@ function importData(file){
         });
         save(LS.foods, foods);
       }
-      if(data.settings && typeof data.settings==='object'){ settings = Object.assign({}, settings, data.settings); save(LS.settings, settings); }
+      // favoriter: slå ihop per beskrivning (undvik dubbletter)
+      if(Array.isArray(data.favorites)){
+        data.favorites.forEach(function(inc){
+          if(!inc || !inc.desc || isFavorite(inc.desc)) return;
+          favorites.push({ id: inc.id || uid(), desc: inc.desc, kcal: inc.kcal||0, protein: inc.protein||0 });
+        });
+        save(LS.favorites, favorites);
+      }
+      if(data.settings && typeof data.settings==='object'){ settings = Object.assign({}, settings, data.settings); save(LS.settings, settings); applyTheme(); }
       if(data.aimodel){ aiModel = data.aimodel; save(LS.aimodel, aiModel); }
       render();
       backupStatus('Säkerhetskopian är inläst och sammanslagen med dina data.', 'var(--green)');
@@ -1181,7 +1318,7 @@ function updateBackupReminder(){
 
 /* ---------- start ---------- */
 function goTab(t){
-  tab=t; editingMealId=null; editingFoodId=null; foodFilter=''; render();
+  tab=t; editingMealId=null; editingFoodId=null; foodFilter=''; copySource=null; render();
   const tc = $('#tab-content');
   if(tc){ tc.classList.remove('fade'); void tc.offsetWidth; tc.classList.add('fade'); }
 }

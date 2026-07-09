@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node -e ' *)",
+      "Bash(git -c user.name=Laurish -c user.email=daniel.skshipek@hotmail.com commit -q -m 'Granskningsfynd inför hosting \\(sw.js-precache, fonts offline, cache-version\\) *)"
+    ]
+  }
+}

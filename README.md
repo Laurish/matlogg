@@ -13,8 +13,13 @@ internet är den valfria AI-uppskattningen.
 
 - **Idag** – logga måltider per måltidstyp, se dagens kcal/protein mot dina mål.
   - **AI-uppskattning** av kcal/protein från fritext (kräver egen Anthropic API-nyckel, sparas bara lokalt).
-  - **Snabbval** av tidigare loggade måltider.
+  - **Snabbval** av tidigare loggade måltider, med **favoriter** (★) som alltid ligger kvar —
+    stjärnmärk t.ex. restaurangrätter du ofta äter.
+  - **Kopiera från en annan dag** – hämta gårdagens lunch, hela gårdagen, samma dag förra veckan
+    eller valfri dag med ett tryck.
   - **Bygg från skafferiet** – välj livsmedel + mängd, appen räknar ut och summerar flera ingredienser till en måltid.
+  - Välj inmatningsmetod per måltid: **AI ✨ / Skafferi / Manuellt** — bara den valda metodens
+    verktyg visas, så kortet hålls rent.
   - Redigera eller ta bort loggade måltider.
 - **Kropp** – registrera vikt och midjemått, se grafer med glidande medel.
 - **Trender** – snitt och utveckling över 7 / 30 / 90 dagar.
