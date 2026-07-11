@@ -169,7 +169,7 @@
   .copy-row:first-of-type{border-top:0;}
   .copy-row:hover{background:var(--surface-box);}
   .copy-row .plus{color:var(--icon); line-height:0; flex-shrink:0;}
-  .copy-type{width:72px; flex-shrink:0; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.06em; color:var(--muted);}
+  .copy-type{width:96px; flex-shrink:0; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.03em; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
   .copy-desc{flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
   /* firande vid nått mål */
   .celebrate{position:fixed; inset:0; z-index:10001; display:flex; align-items:center; justify-content:center;
@@ -397,9 +397,10 @@ function foodMacros(food, amount){
 function foodAmountLabel(food, amount){ const a = parseFloat(amount)||0; return round1(a)+' '+food.unit; }
 
 const MEAL_TYPES = [
-  {id:'frukost', label:'Frukost'}, {id:'lunch', label:'Lunch'},
-  {id:'middag', label:'Middag'}, {id:'mellanmal', label:'Mellanmål'}
+  {id:'frukost', label:'Frukost', emoji:'🍳'}, {id:'lunch', label:'Lunch', emoji:'🥗'},
+  {id:'middag', label:'Middag', emoji:'🍽️'}, {id:'mellanmal', label:'Mellanmål', emoji:'🍎'}
 ];
+function mealTypeTag(m){ return m.emoji+' '+m.label; }
 
 /* ---------- hjälpare ---------- */
 function $(s){ return document.querySelector(s); }
@@ -586,6 +587,9 @@ function render(){
 function mealRowHTML(e){
   if(editingMealId===e.id){
     return '<div class="edit-row" data-edit-id="'+e.id+'">'
+      + '<div class="pills" style="margin-bottom:0" role="radiogroup" aria-label="Måltidstyp">'
+      +   MEAL_TYPES.map(function(m){ return '<button class="pill'+(e.type===m.id?' active':'')+'" data-etype="'+m.id+'" role="radio" aria-checked="'+(e.type===m.id)+'">'+mealTypeTag(m)+'</button>'; }).join('')
+      + '</div>'
       + '<input id="edit-desc" type="text" value="'+escapeHTML(e.desc)+'" aria-label="Beskrivning">'
       + '<div class="grid2">'
       +   '<div class="field-wrap"><input id="edit-kcal" type="number" inputmode="decimal" value="'+e.kcal+'" aria-label="Kalorier"><span class="field-suffix">kcal</span></div>'
@@ -652,7 +656,7 @@ function copyCardHTML(){
   MEAL_TYPES.forEach(function(m){
     srcMeals.filter(function(e){ return e.type===m.id; }).forEach(function(e){
       rows += '<button class="copy-row" data-act="copy-meal" data-src="'+src+'" data-id="'+e.id+'" title="Kopiera till '+(isToday?'idag':prettyDate(day))+'">'
-        + '<span class="copy-type">'+m.label+'</span>'
+        + '<span class="copy-type">'+m.emoji+' '+m.label+'</span>'
         + '<span class="copy-desc">'+escapeHTML(e.desc)+'</span>'
         + '<span class="row-macros"><span class="amber">'+e.kcal+'</span><span class="dot">·</span><span class="green">'+e.protein+'g</span></span>'
         + '<span class="plus">'+plusSVG+'</span>'
@@ -699,18 +703,18 @@ function todayHTML(){
 
   const kcalCell = kg>0
     ? '<div class="ring-wrap">'+ringSVG(t.kcal, kg, 'amber', 'amber-soft', 'kcal')
-      + '<div class="small">'+(kg-t.kcal>=0 ? (kg-t.kcal)+' kvar av '+kg : (t.kcal-kg)+' över '+kg)+'</div></div>'
+      + '<div class="small">'+(kg-t.kcal>=0 ? '<strong>'+(kg-t.kcal)+'</strong> kvar av '+kg : '<strong>'+(t.kcal-kg)+'</strong> över '+kg)+'</div></div>'
     : '<div class="big amber" style="font-size:40px;margin-top:4px">'+t.kcal+'<span class="unit">kcal</span></div>';
   const protCell = pg>0
     ? '<div class="ring-wrap">'+ringSVG(t.protein, pg, 'green', 'green-soft', 'g')
-      + '<div class="small">'+(pg-t.protein>=0 ? (pg-t.protein)+' g kvar av '+pg : 'mål nått (+'+(t.protein-pg)+' g)')+'</div></div>'
+      + '<div class="small">'+(pg-t.protein>=0 ? '<strong>'+(pg-t.protein)+' g</strong> kvar av '+pg : 'mål nått 🎉 (+'+(t.protein-pg)+' g)')+'</div></div>'
     : '<div class="big green" style="font-size:40px;margin-top:4px">'+t.protein+'<span class="unit">g</span></div>';
 
   const groups = MEAL_TYPES.map(m=>{
     const g=(meals[day]||[]).filter(e=>e.type===m.id); if(!g.length) return '';
     const sub=g.reduce((a,e)=>({kcal:a.kcal+e.kcal,protein:a.protein+e.protein}),{kcal:0,protein:0});
     const rows=g.map(mealRowHTML).join('');
-    return '<div class="card"><div class="group-head"><span>'+m.label+'</span>'
+    return '<div class="card"><div class="group-head"><span>'+mealTypeTag(m)+'</span>'
       +'<span class="muted"><span class="amber">'+sub.kcal+' kcal</span> · <span class="green">'+sub.protein+' g</span></span></div>'+rows+'</div>';
   }).join('');
   const empty = (meals[day]||[]).length===0 ? '<div class="card empty">Inga måltider loggade än. Lägg till din första ovan.</div>' : '';
@@ -729,7 +733,7 @@ function todayHTML(){
     + recent.map(function(r){ return chipHTML(r, false); }).join('')
     + '</div></div>' : '';
 
-  const pills = MEAL_TYPES.map(m=>'<button class="pill'+(mealType===m.id?' active':'')+'" data-type="'+m.id+'">'+m.label+'</button>').join('');
+  const pills = MEAL_TYPES.map(m=>'<button class="pill'+(mealType===m.id?' active':'')+'" data-type="'+m.id+'">'+mealTypeTag(m)+'</button>').join('');
 
   const method = addMethod();
   const descHint =
@@ -1042,10 +1046,18 @@ function wireSkafferi(){
 /* ---------- händelser ---------- */
 function wireToday(){
   $('#tab-content').onclick = function(ev){
-    const b = ev.target.closest('[data-act],[data-type]'); if(!b) return;
+    const b = ev.target.closest('[data-act],[data-type],[data-etype]'); if(!b) return;
+    if(b.dataset.etype){
+      // typbyte i redigeringsläget: toggla bara klasser, ingen omrendering (behåller oskrivna fältändringar)
+      document.querySelectorAll('.pill[data-etype]').forEach(function(p){
+        const on = p.dataset.etype===b.dataset.etype;
+        p.className = 'pill'+(on?' active':''); p.setAttribute('aria-checked', on?'true':'false');
+      });
+      return;
+    }
     if(b.dataset.type){
       mealType = b.dataset.type;
-      document.querySelectorAll('.pill').forEach(p=>p.className='pill'+(p.dataset.type===mealType?' active':''));
+      document.querySelectorAll('.pill[data-type]').forEach(p=>p.className='pill'+(p.dataset.type===mealType?' active':''));
       const qt = $('#quick-target'); if(qt) qt.textContent = mealTypeLabel(mealType);
       return;
     }
@@ -1088,7 +1100,9 @@ function wireToday(){
       const id=b.dataset.id, arr=meals[day]||[], idx=arr.findIndex(e=>e.id===id);
       if(idx>=0){
         const d=($('#edit-desc').value||'').trim();
+        const tSel = document.querySelector('.pill[data-etype].active');
         arr[idx]=Object.assign({}, arr[idx], { desc: d||arr[idx].desc,
+          type: tSel ? tSel.dataset.etype : arr[idx].type,
           kcal: Math.max(0,Math.round(parseFloat($('#edit-kcal').value)||0)),
           protein: Math.max(0,Math.round(parseFloat($('#edit-protein').value)||0)) });
         save(LS.meals, meals);
