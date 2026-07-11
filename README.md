@@ -22,7 +22,10 @@ internet är den valfria AI-uppskattningen.
     verktyg visas, så kortet hålls rent.
   - Redigera eller ta bort loggade måltider.
 - **Kropp** – registrera vikt och midjemått, se grafer med glidande medel.
-- **Trender** – snitt och utveckling över 7 / 30 / 90 dagar.
+- **Trender** – veckoöversikt (mån–sön med dagens dag markerad) samt snitt och utveckling
+  över 7 / 30 / 90 dagar.
+- På mobilen byter du dag genom att **svepa** vänster/höger på Idag-fliken. Snabbval- och
+  kopiera-korten går att fälla ihop, och dagens totalsumma visas under måltidslistan.
 - **Mål** – dagliga kcal-/proteinmål och kroppsmål (mållinjer i graferna). Valfri **hyllning med
   ljud** när dagens proteinmål nås (kan slås av/på).
 - **Skafferi** – eget livsmedelsbibliotek med näringsvärden per 100 g / 100 ml / styck. Förfyllt med
