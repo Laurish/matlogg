@@ -1,5 +1,25 @@
 # Att göra i framtiden
 
+## Publicera på GitHub Pages (5 min, kräver ditt GitHub-konto)
+
+Allt i repot är förberett (index.html, service worker, main-branch). Kvar:
+
+1. Gå till <https://github.com/new> → Repository name: `matlogg` → **Public** → Create repository
+   (inga bockar för README/gitignore — repot finns redan lokalt).
+2. I terminalen i projektmappen (byt ANVÄNDARNAMN):
+   ```
+   git remote add origin https://github.com/ANVÄNDARNAMN/matlogg.git
+   git push -u origin main
+   ```
+3. På GitHub: repot → Settings → Pages → Source: **Deploy from a branch** →
+   Branch: `main` / `/ (root)` → Save. Efter ~1 minut ligger appen på
+   `https://ANVÄNDARNAMN.github.io/matlogg/`
+4. **Flytta datan:** exportera säkerhetskopia från den lokala versionen (index.html),
+   öppna den hostade URL:en och importera filen där. (Nytt origin = tom localStorage.)
+5. Installera på mobilen: öppna URL:en → Chrome-meny → **Installera app**
+   (iPhone: Safari → Dela → Lägg till på hemskärmen). Funkar sedan offline.
+6. Framöver: efter varje ändring `git push` — och bumpa `CACHE_VERSION` i `sw.js`.
+
 ## 0. Fynd från kodgranskning (2026-07-06) — status 2026-07-12
 
 1. ✅ **Åtgärdat:** appfilen är omdöpt till `index.html` och `sw.js` precachar rätt filer.
