@@ -1,13 +1,15 @@
 # Matlogg
 
 En liten app för att logga **energi, protein och kroppsmått**. Hela appen ligger i en enda fil
-([matlogg.html](matlogg.html)) – ingen installation, inget byggsteg, inget konto. All data sparas
+([index.html](index.html)) – ingen installation, inget byggsteg, inget konto. All data sparas
 lokalt i webbläsarens `localStorage` på din enhet.
 
 ## Köra appen
 
-Öppna bara `matlogg.html` i webbläsaren (dubbelklick). Det fungerar offline – det enda som kräver
-internet är den valfria AI-uppskattningen.
+Öppna `index.html` i webbläsaren (dubbelklick), eller besök den hostade versionen (GitHub Pages).
+Det fungerar offline – det enda som kräver internet är den valfria AI-uppskattningen.
+Från den hostade versionen kan appen **installeras på hemskärmen** (mobil och dator):
+Android/Chrome: meny → "Installera app" · iPhone/Safari: Dela → "Lägg till på hemskärmen".
 
 ## Funktioner
 

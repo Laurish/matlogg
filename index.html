@@ -315,6 +315,7 @@ let tab = 'idag';
 let trendRange = 7;
 let mealType = 'frukost';
 let builderRows = [];   // transient: rader i livsmedelsbyggaren på Idag
+let manualParts = [];   // transient: delar i manuell/AI-inmatning som blir EN måltidsrad
 let editingMealId = null; // id på måltid som redigeras inline
 let foodFilter = ''; // sökfilter i skafferiet
 let editingFoodId = null; // id på livsmedel som redigeras inline i Skafferi
@@ -694,6 +695,28 @@ function copyCardHTML(){
     + '</div>';
 }
 
+function partsSum(extra){
+  const all = extra ? manualParts.concat([extra]) : manualParts;
+  return all.reduce(function(a,p){ return {kcal:a.kcal+(p.kcal||0), protein:a.protein+(p.protein||0)}; }, {kcal:0,protein:0});
+}
+function partsBoxHTML(){
+  if(!manualParts.length) return '';
+  const rows = manualParts.map(function(p,i){
+    return '<div class="builder-row">'
+      + '<span class="builder-name">'+escapeHTML(p.desc)+'</span>'
+      + '<span class="builder-macros"><span class="amber">'+p.kcal+'</span><span class="dot">·</span><span class="green">'+p.protein+'g</span></span>'
+      + '<button class="icon-btn" data-act="part-del" data-i="'+i+'" aria-label="Ta bort del">'+trashSVG+'</button>'
+      + '</div>';
+  }).join('');
+  const s = partsSum();
+  return '<div class="ai-box" style="margin-top:10px">'
+    + '<div style="font-size:14px;font-weight:600">Delar i måltiden</div>'
+    + '<div style="margin-top:6px">'+rows+'</div>'
+    + '<div class="builder-sum"><span>Summa</span><span><span class="amber">'+s.kcal+' kcal</span> · <span class="green">'+s.protein+' g</span></span></div>'
+    + '<div class="hint" style="margin-top:8px">Skriv nästa del ovan och tryck <strong>+ Del</strong> — eller spara alltihop som en måltid.</div>'
+    + '</div>';
+}
+
 function todayHTML(){
   const t = totalsFor(day);
   const kg = parseFloat(settings.kcalGoal)||0, pg = parseFloat(settings.proteinGoal)||0;
@@ -727,8 +750,9 @@ function todayHTML(){
     const g=(meals[day]||[]).filter(e=>e.type===m.id); if(!g.length) return '';
     const sub=g.reduce((a,e)=>({kcal:a.kcal+e.kcal,protein:a.protein+e.protein}),{kcal:0,protein:0});
     const rows=g.map(mealRowHTML).join('');
+    const mergeBtn = g.length>1 ? '<button class="linkbtn" data-act="merge-group" data-mtype="'+m.id+'" style="margin-left:10px" title="Slå ihop raderna till en">slå ihop</button>' : '';
     return '<div class="card"><div class="group-head"><span>'+mealTypeTag(m)+'</span>'
-      +'<span class="muted"><span class="amber">'+sub.kcal+' kcal</span> · <span class="green">'+sub.protein+' g</span></span></div>'+rows+'</div>';
+      +'<span class="muted"><span class="amber">'+sub.kcal+' kcal</span> · <span class="green">'+sub.protein+' g</span>'+mergeBtn+'</span></div>'+rows+'</div>';
   }).join('');
   const totalRow = (meals[day]||[]).length
     ? '<div class="card" style="padding:12px 16px;display:flex;align-items:center;justify-content:space-between;font-size:14px;font-weight:600">'
@@ -813,8 +837,13 @@ function todayHTML(){
         + '<div class="field-wrap"><input id="m-kcal" type="number" inputmode="decimal" placeholder="0"><span class="field-suffix">kcal</span></div>'
         + '<div class="field-wrap"><input id="m-protein" type="number" inputmode="decimal" placeholder="0"><span class="field-suffix">g protein</span></div>'
         + '</div>'
-      : '')
-  +   '<button class="btn btn-primary" id="m-add" style="margin-top:12px">'+plusSVG+' Lägg till måltid</button>'
+        + partsBoxHTML()
+        + '<div style="display:flex;gap:8px;margin-top:12px">'
+        +   '<button class="btn btn-ghost" id="m-part" style="width:auto;white-space:nowrap" title="Lägg till som del — flera delar sparas som en måltidsrad">'+plusSVG+' Del</button>'
+        +   '<button class="btn btn-primary" id="m-add" style="flex:1">'+plusSVG+' Lägg till måltid'+(manualParts.length?' ('+manualParts.length+' delar)':'')+'</button>'
+        + '</div>'
+        + (manualParts.length ? '' : '<div class="hint" style="margin-top:6px">Tips: bygger du en måltid av flera saker — fyll i en i taget och tryck <strong>+ Del</strong>, så hamnar allt på en rad.</div>')
+      : '<button class="btn btn-primary" id="m-add" style="margin-top:12px">'+plusSVG+' Lägg till måltid</button>')
   + '</div>'
   + quickCard
   + copyCardHTML()
@@ -1166,6 +1195,20 @@ function wireToday(){
       editingMealId=null; maybeCelebrate(prevProtein); render();
     }
     else if(a==='builder-del'){ builderRows.splice(parseInt(b.dataset.i,10),1); render(); }
+    else if(a==='part-del'){ manualParts.splice(parseInt(b.dataset.i,10),1); render(); }
+    else if(a==='merge-group'){
+      const mt = b.dataset.mtype;
+      const arr = meals[day]||[];
+      const grp = arr.filter(e=>e.type===mt);
+      if(grp.length>1 && confirm('Slå ihop '+grp.length+' rader i '+mealTypeLabel(mt)+' till en rad?')){
+        const sum = grp.reduce(function(a2,e){ return {kcal:a2.kcal+e.kcal, protein:a2.protein+e.protein}; }, {kcal:0,protein:0});
+        const merged = { id: uid(), type: mt, desc: grp.map(e=>e.desc).join(', '), kcal: sum.kcal, protein: sum.protein };
+        const out=[]; let placed=false;
+        arr.forEach(function(e){ if(e.type===mt){ if(!placed){ out.push(merged); placed=true; } } else { out.push(e); } });
+        meals[day]=out; save(LS.meals, meals); render();
+        toast('Ihopslaget till en rad.');
+      }
+    }
     else if(a==='ai-edit'){ aiEditing=true; render(); }
     else if(a==='quick'){
       const prevProtein = totalsFor(day).protein;
@@ -1175,6 +1218,7 @@ function wireToday(){
     }
   };
   $('#m-add').onclick = addMeal;
+  if($('#m-part')) $('#m-part').onclick = addPart;
   if($('#m-protein')) $('#m-protein').onkeydown = function(e){ if(e.key==='Enter') addMeal(); };
   if($('#b-add-row')) $('#b-add-row').onclick = addBuilderRow;
   if($('#b-amount')) $('#b-amount').onkeydown = function(e){ if(e.key==='Enter') addBuilderRow(); };
@@ -1212,6 +1256,22 @@ function addBuilderRow(){
   const a = $('#b-amount'); if(a) a.focus();
 }
 
+function readCurrentPart(){
+  const desc = ($('#m-desc') && $('#m-desc').value || '').trim();
+  if(!desc) return null;
+  return { desc: desc,
+    kcal: Math.max(0, Math.round(parseFloat($('#m-kcal') && $('#m-kcal').value)||0)),
+    protein: Math.max(0, Math.round(parseFloat($('#m-protein') && $('#m-protein').value)||0)) };
+}
+
+function addPart(){
+  const p = readCurrentPart();
+  if(!p){ toast('Skriv vad delen är först.', true); if($('#m-desc')) $('#m-desc').focus(); return; }
+  manualParts.push(p);
+  render(); // fälten byggs om tomma
+  const d = $('#m-desc'); if(d) d.focus();
+}
+
 function addMeal(){
   const prevProtein = totalsFor(day).protein;
   // bygger man från skafferiet skapas en måltid av summan
@@ -1228,6 +1288,20 @@ function addMeal(){
     return;
   }
   if(addMethod()==='skafferi'){ toast('Lägg till minst en rad från skafferiet först.', true); return; }
+  // delar: allt ihopskrivet blir EN rad (halvskriven del i fälten räknas med)
+  if(manualParts.length){
+    const cur = readCurrentPart();
+    const parts = cur ? manualParts.concat([cur]) : manualParts.slice();
+    const sum = parts.reduce(function(a,p){ return {kcal:a.kcal+p.kcal, protein:a.protein+p.protein}; }, {kcal:0,protein:0});
+    meals[day] = (meals[day]||[]).concat({ id: uid(), type: mealType,
+      desc: parts.map(function(p){ return p.desc; }).join(', '), kcal: sum.kcal, protein: sum.protein });
+    save(LS.meals, meals);
+    manualParts = [];
+    maybeCelebrate(prevProtein);
+    render();
+    toast('Måltid med '+parts.length+' delar tillagd som en rad.');
+    return;
+  }
   const desc = $('#m-desc').value.trim(); if(!desc) return;
   const entry = {
     id: uid(),

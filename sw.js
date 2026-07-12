@@ -1,9 +1,9 @@
 /* Matlogg service worker — gör appen installerbar och offline-kapabel när den serveras över https/localhost.
    Bump CACHE_VERSION vid varje release så gamla filer rensas. */
-const CACHE_VERSION = 'matlogg-v2';
+const CACHE_VERSION = 'matlogg-v3';
 const APP_SHELL = [
   './',
-  './matlogg.html',
+  './index.html',
   './manifest.json',
   './icon.svg'
 ];
@@ -38,7 +38,7 @@ self.addEventListener('fetch', function(e){
           caches.open(CACHE_VERSION).then(function(c){ c.put(e.request, copy); });
         }
         return res;
-      }).catch(function(){ return cached; });
+      }).catch(function(){ return cached || Response.error(); });
       return cached || fetched;
     })
   );

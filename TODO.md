@@ -1,20 +1,12 @@
 # Att göra i framtiden
 
-## 0. Vid hosting/nästa byggsteg — fynd från kodgranskning (2026-07-06)
+## 0. Fynd från kodgranskning (2026-07-06) — status 2026-07-12
 
-Granskning av hela appen efter UI-lyftet (a86a58f): koden är frisk — mörkt läge är konsekvent
-genomfört via CSS-variabler (även i SVG-graferna), ringarna klampar korrekt på 100 %, AI-anropet
-har timeout, mobilnavet respekterar safe areas. Fyra detaljer att ta med i nästa steg:
-
-1. **VIKTIGT vid hosting: `sw.js` precachar `'./'`.** Appfilen heter `matlogg.html`, inte
-   `index.html`. På t.ex. GitHub Pages ger `'./'` då 404 → `cache.addAll` misslyckas → service
-   workern installeras aldrig → ingen offline/PWA. Åtgärd: **döp om till `index.html` vid
-   hosting** (eller ta bort `'./'` ur `APP_SHELL`). Att döpa om är bäst — ger även ren URL.
-2. `sw.js` fetch-fallback: offline + ocachad förfrågan → `respondWith(undefined)`. Ofarligt i
-   praktiken (app-skalet är precachat) men städa gärna: returnera `Response.error()` som sista utväg.
-3. Fraunces laddas från Google Fonts → funkar inte offline (faller snyggt tillbaka till Georgia).
-   Vill man ha typsnittet offline i PWA:n: self-hosta woff2-filen och precacha den i `sw.js`.
-4. Kom ihåg att **bumpa `CACHE_VERSION`** i `sw.js` vid varje release, annars ser installerade
+1. ✅ **Åtgärdat:** appfilen är omdöpt till `index.html` och `sw.js` precachar rätt filer.
+2. ✅ **Åtgärdat:** sw-fetch returnerar `Response.error()` som sista utväg.
+3. Kvarstår (valfritt): Fraunces laddas från Google Fonts → offline faller den tillbaka till
+   Georgia. Vill man ha typsnittet offline i PWA:n: self-hosta woff2 och precacha i `sw.js`.
+4. Rutin: **bumpa `CACHE_VERSION`** i `sw.js` vid varje release (nu v3), annars ser installerade
    appar gammal version tills stale-while-revalidate hinner ikapp (en extra laddning).
 
 ## 1. Supabase-synk + mobilapp (PWA)
