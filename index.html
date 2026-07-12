@@ -241,6 +241,7 @@
     </div>
   </div>
 
+<script src="supabase.min.js"></script>
 <script>
 /* ---------- ikoner (dekorativa: aria-hidden) ---------- */
 const trashSVG = '<svg aria-hidden="true" focusable="false" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>';
@@ -283,10 +284,15 @@ const DEFAULT_FOODS = [
 ];
 
 /* ---------- lagring (sparas på din dator) ---------- */
-const LS = { meals:'matlogg.meals', body:'matlogg.body', settings:'matlogg.settings', apikey:'matlogg.apikey', aimodel:'matlogg.aimodel', foods:'matlogg.foods', favorites:'matlogg.favorites', lastExport:'matlogg.lastExport' };
+const LS = { meals:'matlogg.meals', body:'matlogg.body', settings:'matlogg.settings', apikey:'matlogg.apikey', aimodel:'matlogg.aimodel', foods:'matlogg.foods', favorites:'matlogg.favorites', lastExport:'matlogg.lastExport', lastSync:'matlogg.lastSync' };
+// nycklar som ingår i moln-synken (AI-nyckeln medvetet INTE med)
+const SYNC_KEYS = {}; [LS.meals, LS.body, LS.settings, LS.foods, LS.favorites, LS.aimodel].forEach(function(k){ SYNC_KEYS[k]=1; });
 function load(k, fb){ try{ const v=localStorage.getItem(k); return v?JSON.parse(v):fb; }catch(e){ return fb; } }
 function save(k, v){
-  try{ localStorage.setItem(k, JSON.stringify(v)); }
+  try{
+    localStorage.setItem(k, JSON.stringify(v));
+    if(SYNC_KEYS[k] && !syncSuppress) scheduleSync();
+  }
   catch(e){ toast('Kunde inte spara — lagringen kan vara full eller blockerad (privat läge?). Exportera en säkerhetskopia.', true); }
 }
 function uid(){ return Date.now()+'-'+Math.random().toString(36).slice(2,8); }
@@ -338,6 +344,112 @@ function addMethod(){
   const m = settings.addMethod;
   if(m==='ai'||m==='skafferi'||m==='manuell') return m;
   return apiKey ? 'ai' : 'manuell';
+}
+
+/* ---------- moln-synk (Supabase) ----------
+   Fyll i projektets URL och anon-nyckel (Settings → API i Supabase-dashboarden).
+   Anon-nyckeln är gjord för att ligga i klientkod — säkerheten sitter i RLS-policyerna. */
+const SUPABASE_URL = '';
+const SUPABASE_ANON_KEY = '';
+const SYNC_TABLE = 'matlogg_state';
+
+let sb = null;              // supabase-klient
+let syncUser = null;        // inloggad användare (null = utloggad)
+let syncTimer = null;       // debounce för autosynk
+let syncBusy = false;
+let syncSuppress = false;   // stäng av autosynk medan vi själva skriver under merge
+let lastSyncMs = load(LS.lastSync, 0);
+let syncStatusText = '';
+let syncStatusErr = false;
+
+function syncConfigured(){ return !!(SUPABASE_URL && SUPABASE_ANON_KEY && window.supabase); }
+
+function syncStatusMsg(msg, isErr){
+  syncStatusText = msg||''; syncStatusErr = !!isErr;
+  const el = document.getElementById('sync-status');
+  if(el){ el.textContent = syncStatusText; el.style.color = isErr ? 'var(--error)' : 'var(--muted)'; }
+}
+
+function collectState(){
+  return { meals: meals, body: body, settings: settings, foods: foods, favorites: favorites, aimodel: aiModel };
+}
+
+function initSync(){
+  if(!syncConfigured()) return;
+  sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  sb.auth.onAuthStateChange(function(ev, session){
+    const prevId = syncUser ? syncUser.id : null;
+    syncUser = session ? session.user : null;
+    if(syncUser && syncUser.id !== prevId) fullSync(false);
+    if(!syncUser) syncStatusMsg('');
+    if(tab==='mal') render();
+  });
+}
+
+function pushState(){
+  if(!sb || !syncUser) return Promise.resolve();
+  return sb.from(SYNC_TABLE)
+    .upsert({ user_id: syncUser.id, data: collectState(), updated_at: new Date().toISOString() })
+    .then(function(r){
+      if(r.error) throw r.error;
+      lastSyncMs = Date.now(); save(LS.lastSync, lastSyncMs);
+      syncStatusMsg('Synkad '+new Date(lastSyncMs).toLocaleTimeString('sv-SE',{hour:'2-digit',minute:'2-digit'}));
+    });
+}
+
+function scheduleSync(){
+  if(!sb || !syncUser) return;
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(function(){
+    pushState().catch(function(err){ syncStatusMsg('Synkfel: '+((err&&err.message)||'okänt'), true); });
+  }, 2000);
+}
+
+/* hämta molnets data, slå ihop med lokalt (samma regler som import), skicka upp resultatet */
+function fullSync(manual){
+  if(!sb || !syncUser || syncBusy) return;
+  syncBusy = true; syncStatusMsg('Synkar…');
+  sb.from(SYNC_TABLE).select('data').eq('user_id', syncUser.id).maybeSingle()
+    .then(function(r){
+      if(r.error) throw r.error;
+      if(r.data && r.data.data){
+        syncSuppress = true;
+        try{ mergeData(r.data.data); } finally { syncSuppress = false; }
+        render();
+      }
+      return pushState();
+    })
+    .then(function(){ if(manual) toast('Synkat med molnet.'); })
+    .catch(function(err){
+      const m = (err && err.message) || 'okänt fel';
+      syncStatusMsg('Synkfel: '+m, true);
+      if(manual) toast('Kunde inte synka: '+m, true);
+    })
+    .then(function(){ syncBusy = false; if(tab==='mal') render(); });
+}
+
+function syncSignIn(create){
+  const emEl=$('#sy-email'), pwEl=$('#sy-pass');
+  const em=(emEl&&emEl.value||'').trim(), pw=pwEl&&pwEl.value||'';
+  if(!em || !pw){ toast('Fyll i e-post och lösenord (minst 6 tecken).', true); return; }
+  syncStatusMsg(create?'Skapar konto…':'Loggar in…');
+  const p = create ? sb.auth.signUp({ email: em, password: pw })
+                   : sb.auth.signInWithPassword({ email: em, password: pw });
+  p.then(function(r){
+    if(r.error) throw r.error;
+    if(create && r.data && r.data.user && !r.data.session){
+      syncStatusMsg('Konto skapat! Bekräfta via länken i mejlet, logga sedan in här.');
+      toast('Kolla din mejl och bekräfta kontot, logga sedan in.');
+    }
+    // lyckad inloggning fångas av onAuthStateChange → fullSync
+  }).catch(function(err){
+    syncStatusMsg('Fel: '+((err&&err.message)||'okänt'), true);
+  });
+}
+
+function syncSignOut(){
+  if(!sb) return;
+  sb.auth.signOut().then(function(){ syncUser=null; syncStatusMsg(''); render(); toast('Utloggad — datan finns kvar lokalt.'); });
 }
 
 /* ---------- liten toast (notiser) ---------- */
@@ -1014,7 +1126,40 @@ function malHTML(){
   +   '</div>'
   +   '<div class="hint" style="margin-top:8px">Auto följer datorns eller telefonens inställning.</div>'
   + '</div>'
+  + syncCardHTML()
   + '<div class="card" style="padding:14px 16px"><div class="small" style="margin-top:0">Allt sparas automatiskt medan du skriver.</div></div>';
+}
+
+function syncCardHTML(){
+  let inner;
+  if(!SUPABASE_URL || !SUPABASE_ANON_KEY){
+    inner = '<div class="hint" style="margin-top:4px">Inte konfigurerad ännu — Supabase-URL och anon-nyckel behöver fyllas i högst upp i appens kod (se TODO.md).</div>';
+  } else if(!window.supabase){
+    inner = '<div class="hint" style="margin-top:4px">Synk-biblioteket kunde inte laddas (supabase.min.js saknas bredvid appen?).</div>';
+  } else if(!syncUser){
+    inner = '<div class="hint" style="margin-top:4px;margin-bottom:10px">Logga in med samma konto på alla enheter så synkas måltider, mätningar, mål, skafferi och favoriter automatiskt. AI-nyckeln synkas aldrig.</div>'
+      + '<label class="field-label" for="sy-email">E-post</label>'
+      + '<input id="sy-email" type="email" autocomplete="email" placeholder="din@epost.se">'
+      + '<label class="field-label" for="sy-pass" style="margin-top:8px">Lösenord</label>'
+      + '<input id="sy-pass" type="password" autocomplete="current-password" placeholder="minst 6 tecken">'
+      + '<div style="display:flex;gap:8px;margin-top:10px">'
+      +   '<button class="btn btn-primary" id="sy-login" style="flex:1">Logga in</button>'
+      +   '<button class="btn btn-ghost" id="sy-signup" style="width:auto">Skapa konto</button>'
+      + '</div>';
+  } else {
+    inner = '<div style="font-size:14px;margin-top:2px">Inloggad som <strong>'+escapeHTML(syncUser.email||'')+'</strong></div>'
+      + (lastSyncMs ? '<div class="hint">Senast synkad '+new Date(lastSyncMs).toLocaleString('sv-SE',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})+'</div>' : '')
+      + '<div style="display:flex;gap:8px;margin-top:10px">'
+      +   '<button class="btn btn-primary" id="sy-now" style="flex:1">Synka nu</button>'
+      +   '<button class="btn btn-ghost" id="sy-out" style="width:auto">Logga ut</button>'
+      + '</div>'
+      + '<div class="hint" style="margin-top:6px">Ändringar skickas upp automatiskt några sekunder efter varje ändring, och hämtas när appen öppnas.</div>';
+  }
+  return '<div class="card hero-pad">'
+    + '<div class="chart-title">Moln-synk</div>'
+    + inner
+    + '<div class="ai-status" id="sync-status" style="color:'+(syncStatusErr?'var(--error)':'var(--muted)')+'">'+escapeHTML(syncStatusText)+'</div>'
+    + '</div>';
 }
 
 /* ---------- skafferi (livsmedelsbibliotek) ---------- */
@@ -1357,6 +1502,11 @@ function wireMal(){
   document.querySelectorAll('[data-theme-pick]').forEach(function(btn){
     btn.onclick = function(){ settings.theme = btn.dataset.themePick; save(LS.settings, settings); applyTheme(); render(); };
   });
+  if($('#sy-login'))  $('#sy-login').onclick  = function(){ syncSignIn(false); };
+  if($('#sy-signup')) $('#sy-signup').onclick = function(){ syncSignIn(true); };
+  if($('#sy-pass'))   $('#sy-pass').onkeydown = function(e){ if(e.key==='Enter') syncSignIn(false); };
+  if($('#sy-now'))    $('#sy-now').onclick    = function(){ fullSync(true); };
+  if($('#sy-out'))    $('#sy-out').onclick    = syncSignOut;
 }
 
 function wireChartTooltips(){
@@ -1390,58 +1540,63 @@ function exportData(){
   backupStatus('Säkerhetskopia sparad till din nedladdningsmapp.', 'var(--green)');
 }
 
+/* slår ihop inkommande data (backup-fil eller moln) med lokalt — additivt, inget skrivs över blint */
+function mergeData(data){
+  // måltider: slå ihop per dag, behåll allt (dubbletter filtreras på id)
+  if(data.meals && typeof data.meals==='object'){
+    Object.keys(data.meals).forEach(function(d){
+      const incoming = data.meals[d]||[], existing = meals[d]||[];
+      const ids = {}; existing.forEach(function(e){ ids[e.id]=1; });
+      meals[d] = existing.concat(incoming.filter(function(e){ return !ids[e.id]; }));
+    });
+    save(LS.meals, meals);
+  }
+  // kroppsmätningar: slå ihop per datum (datum är den unika nyckeln)
+  if(Array.isArray(data.body)){
+    data.body.forEach(function(inc){
+      if(!inc || !inc.date) return;
+      const idx = body.findIndex(function(x){ return x.date===inc.date; });
+      if(idx>=0){
+        body[idx] = Object.assign({}, body[idx], {
+          weight: typeof inc.weight==='number' ? inc.weight : body[idx].weight,
+          waist:  typeof inc.waist==='number'  ? inc.waist  : body[idx].waist
+        });
+      } else {
+        body.push({ id: inc.id || uid(), date: inc.date,
+          weight: typeof inc.weight==='number' ? inc.weight : null,
+          waist:  typeof inc.waist==='number'  ? inc.waist  : null });
+      }
+    });
+    save(LS.body, body);
+  }
+  // skafferi: slå ihop per id (uppdaterar matchande, lägger till nya)
+  if(Array.isArray(data.foods)){
+    data.foods.forEach(function(inc){
+      if(!inc || !inc.id) return;
+      const idx = foods.findIndex(function(f){ return f.id===inc.id; });
+      if(idx>=0) foods[idx] = Object.assign({}, foods[idx], inc);
+      else foods.push(inc);
+    });
+    save(LS.foods, foods);
+  }
+  // favoriter: slå ihop per beskrivning (undvik dubbletter)
+  if(Array.isArray(data.favorites)){
+    data.favorites.forEach(function(inc){
+      if(!inc || !inc.desc || isFavorite(inc.desc)) return;
+      favorites.push({ id: inc.id || uid(), desc: inc.desc, kcal: inc.kcal||0, protein: inc.protein||0 });
+    });
+    save(LS.favorites, favorites);
+  }
+  if(data.settings && typeof data.settings==='object'){ settings = Object.assign({}, settings, data.settings); save(LS.settings, settings); applyTheme(); }
+  if(data.aimodel){ aiModel = data.aimodel; save(LS.aimodel, aiModel); }
+}
+
 function importData(file){
   const reader = new FileReader();
   reader.onload = function(){
     try{
       const data = JSON.parse(reader.result);
-      // måltider: slå ihop per dag, behåll allt (dubbletter filtreras på id)
-      if(data.meals && typeof data.meals==='object'){
-        Object.keys(data.meals).forEach(function(d){
-          const incoming = data.meals[d]||[], existing = meals[d]||[];
-          const ids = {}; existing.forEach(function(e){ ids[e.id]=1; });
-          meals[d] = existing.concat(incoming.filter(function(e){ return !ids[e.id]; }));
-        });
-        save(LS.meals, meals);
-      }
-      // kroppsmätningar: slå ihop per datum (datum är den unika nyckeln)
-      if(Array.isArray(data.body)){
-        data.body.forEach(function(inc){
-          if(!inc || !inc.date) return;
-          const idx = body.findIndex(function(x){ return x.date===inc.date; });
-          if(idx>=0){
-            body[idx] = Object.assign({}, body[idx], {
-              weight: typeof inc.weight==='number' ? inc.weight : body[idx].weight,
-              waist:  typeof inc.waist==='number'  ? inc.waist  : body[idx].waist
-            });
-          } else {
-            body.push({ id: inc.id || uid(), date: inc.date,
-              weight: typeof inc.weight==='number' ? inc.weight : null,
-              waist:  typeof inc.waist==='number'  ? inc.waist  : null });
-          }
-        });
-        save(LS.body, body);
-      }
-      // skafferi: slå ihop per id (uppdaterar matchande, lägger till nya)
-      if(Array.isArray(data.foods)){
-        data.foods.forEach(function(inc){
-          if(!inc || !inc.id) return;
-          const idx = foods.findIndex(function(f){ return f.id===inc.id; });
-          if(idx>=0) foods[idx] = Object.assign({}, foods[idx], inc);
-          else foods.push(inc);
-        });
-        save(LS.foods, foods);
-      }
-      // favoriter: slå ihop per beskrivning (undvik dubbletter)
-      if(Array.isArray(data.favorites)){
-        data.favorites.forEach(function(inc){
-          if(!inc || !inc.desc || isFavorite(inc.desc)) return;
-          favorites.push({ id: inc.id || uid(), desc: inc.desc, kcal: inc.kcal||0, protein: inc.protein||0 });
-        });
-        save(LS.favorites, favorites);
-      }
-      if(data.settings && typeof data.settings==='object'){ settings = Object.assign({}, settings, data.settings); save(LS.settings, settings); applyTheme(); }
-      if(data.aimodel){ aiModel = data.aimodel; save(LS.aimodel, aiModel); }
+      mergeData(data);
       render();
       backupStatus('Säkerhetskopian är inläst och sammanslagen med dina data.', 'var(--green)');
     }catch(e){
@@ -1489,6 +1644,11 @@ $('#import-btn').onclick = function(){ $('#import-file').click(); };
 updateBackupReminder();
 $('#import-file').onchange = function(){ if(this.files && this.files[0]){ importData(this.files[0]); this.value=''; } };
 render();
+initSync();
+/* hämta färska data när appen får fokus igen (t.ex. växlar från mobilen till datorn) */
+document.addEventListener('visibilitychange', function(){
+  if(document.visibilityState==='visible' && syncUser && Date.now()-lastSyncMs>30000) fullSync(false);
+});
 /* Registrera service worker för PWA/offline — bara över http(s), inte file:// */
 if('serviceWorker' in navigator && location.protocol.indexOf('http')===0){
   navigator.serviceWorker.register('sw.js').catch(function(){ /* offline-cache är valfritt */ });

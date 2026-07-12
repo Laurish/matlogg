@@ -29,7 +29,24 @@ Allt i repot är förberett (index.html, service worker, main-branch). Kvar:
 4. Rutin: **bumpa `CACHE_VERSION`** i `sw.js` vid varje release (nu v3), annars ser installerade
    appar gammal version tills stale-while-revalidate hinner ikapp (en extra laddning).
 
-## 1. Supabase-synk + mobilapp (PWA)
+## 1. Supabase-synk + mobilapp (PWA) — ✅ IMPLEMENTERAD 2026-07-12 (tre användarsteg kvar)
+
+Synkmodulen är inbyggd i `index.html` (auth med e-post+lösenord, pull→merge→push vid inloggning
+och appstart, debouncad autopush 2 s efter varje ändring, hämtning när fliken får fokus igen).
+`supabase.min.js` (v2.110.2) ligger self-hostad bredvid appen och precachas av service workern.
+AI-nyckeln synkas aldrig. Kvar för användaren:
+
+1. **Kör SQL:en nedan** i Supabase-dashboarden (footrest-projektet → SQL Editor).
+2. **Authentication → Sign In / Providers → Email:** stäng av "Confirm email"
+   (annars måste bekräftelselänken klickas en gång innan inloggning funkar).
+3. **Settings → API:** kopiera *Project URL* och *anon public*-nyckeln och fyll i
+   `SUPABASE_URL` / `SUPABASE_ANON_KEY` högst upp i `<script>`-blocket i `index.html`
+   (sök på "moln-synk"), committa och pusha.
+
+**Känd begränsning (v1):** merge är additiv — en radering på en enhet kan återuppstå efter synk
+från en enhet som fortfarande har posten. Åtgärd vid behov: tombstones (raderingslogg) i v2.
+
+**Ursprunglig plan nedan (behållen som referens):**
 
 **Mål:** logga på datorn och se det på mobilen automatiskt, och kunna installera appen på
 hemskärmen. `localStorage` blir offline-cache, Supabase blir källan som synkar.
