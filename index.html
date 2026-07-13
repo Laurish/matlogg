@@ -363,7 +363,7 @@ function addMethod(){
 const SUPABASE_URL = 'https://schgcawfirvzlemwdoqf.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNjaGdjYXdmaXJ2emxlbXdkb3FmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgwMDIyMzcsImV4cCI6MjA5MzU3ODIzN30.6HYHPlZF3gXlFoR30qVJjJ6-zVYyKEv8P-MTrNBOjYo';
 const SYNC_TABLE = 'matlogg_state';
-const APP_VERSION = 7; // håll i takt med CACHE_VERSION i sw.js
+const APP_VERSION = 8; // håll i takt med CACHE_VERSION i sw.js
 
 let sb = null;              // supabase-klient
 let syncUser = null;        // inloggad användare (null = utloggad)
@@ -373,6 +373,7 @@ let syncSuppress = false;   // stäng av autosynk medan vi själva skriver under
 let lastSyncMs = load(LS.lastSync, 0);
 let syncStatusText = '';
 let syncStatusErr = false;
+let authResolved = false; // sant när Supabase svarat om sessionen (undviker banner-blink vid start)
 
 function syncConfigured(){ return !!(SUPABASE_URL && SUPABASE_ANON_KEY && window.supabase); }
 
@@ -392,10 +393,11 @@ function initSync(){
   sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   sb.auth.onAuthStateChange(function(ev, session){
     const prevId = syncUser ? syncUser.id : null;
+    authResolved = true;
     syncUser = session ? session.user : null;
     if(syncUser && syncUser.id !== prevId){ remoteRev = null; fullSync(false); }
     if(!syncUser) syncStatusMsg('');
-    if(tab==='mal') render();
+    render(); // uppdatera ev. utloggad-banner på Idag + synk-kortet på Mål
   });
 }
 
@@ -1048,7 +1050,13 @@ function todayHTML(){
       + '<div class="hint" style="margin-top:6px">Skaffa en nyckel på console.anthropic.com. API-användning faktureras separat från ditt Claude-konto — runt en tiondels öre per uppskattning.</div>'
       + '</div>';
 
+  const syncWarn = (syncConfigured() && sb && authResolved && !syncUser)
+    ? '<button class="backup-reminder" data-act="goto-sync" style="display:block;width:100%;border:0;cursor:pointer;text-align:center;font-family:inherit">'
+      + '⚠️ Du är utloggad ur moln-synken — det du loggar sparas bara på den här enheten. Tryck här för att logga in.</button>'
+    : '';
+
   return ''
+  + syncWarn
   + '<div class="card hero-pad">'
   +   '<div class="datenav">'
   +     '<button class="navbtn" data-act="prev" aria-label="Föregående dag">'+leftSVG+'</button>'
@@ -1450,6 +1458,7 @@ function wireToday(){
     }
     else if(a==='toggle-quick'){ settings.collapseQuick=!settings.collapseQuick; save(LS.settings, settings); render(); }
     else if(a==='toggle-copy'){ settings.collapseCopy=!settings.collapseCopy; save(LS.settings, settings); render(); }
+    else if(a==='goto-sync'){ goTab('mal'); const em=$('#sy-email'); if(em) em.focus(); }
     else if(a==='edit-meal'){ editingMealId=b.dataset.id; render(); const d=$('#edit-desc'); if(d){ d.focus(); d.select(); } }
     else if(a==='edit-cancel'){ editingMealId=null; render(); }
     else if(a==='edit-save'){
