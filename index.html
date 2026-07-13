@@ -785,9 +785,11 @@ function lineChartSVG(data, key, color, withAvg, goal){
   if(min===max){ min-=1; max+=1; } const pad=(max-min)*0.12; min-=pad; max+=pad;
   const X=i=> data.length===1 ? pl+iw/2 : pl+(iw*i)/(data.length-1);
   const Y=v=> pt+ih*(1-(v-min)/(max-min));
+  // decimal på axeln när intervallet är litet — annars kan två gridlinjer få samma etikett (t.ex. 89/89/88)
+  const axisLbl = (max-min)<4 ? function(v){ return round1(v); } : function(v){ return Math.round(v); };
   let grid=''; for(let g=0;g<=2;g++){ const v=min+(max-min)*g/2, yy=Y(v);
     grid+='<line x1="'+pl+'" y1="'+yy+'" x2="'+(W-pr)+'" y2="'+yy+'" stroke="var(--grid)"/>'
-        + '<text x="'+(pl-6)+'" y="'+(yy+3)+'" text-anchor="end" font-size="9" fill="var(--muted)">'+Math.round(v)+'</text>'; }
+        + '<text x="'+(pl-6)+'" y="'+(yy+3)+'" text-anchor="end" font-size="9" fill="var(--muted)">'+axisLbl(v)+'</text>'; }
   let goalLine=''; if(goal>0){ const gy=Y(goal);
     goalLine='<line x1="'+pl+'" y1="'+gy+'" x2="'+(W-pr)+'" y2="'+gy+'" stroke="var(--muted)" stroke-width="1.5" stroke-dasharray="5 4"/>'
         + '<text x="'+(W-pr)+'" y="'+(gy-4)+'" text-anchor="end" font-size="9" fill="var(--muted)">mål '+goal+'</text>'; }
@@ -1096,7 +1098,7 @@ function bodyHTML(){
       +'<div class="stat-big" style="font-size:30px;color:'+color+'">'+(val!=null?val:'–')+(val!=null?'<span class="unit">'+unit+'</span>':'')+'</div>'+deltaHTML+'</div>';
   }
 
-  const wChart = wData.length ? '<div class="card chart-pad"><div class="chart-title">Vikt (kg)</div>'+lineChartSVG(wData,'weight','var(--blue)',true,parseFloat(settings.targetWeight)||0)+'</div>' : '';
+  const wChart = wData.length ? '<div class="card chart-pad"><div class="chart-title">Vikt (kg)</div>'+lineChartSVG(wData,'weight','var(--blue)',wData.length>=5,parseFloat(settings.targetWeight)||0)+'</div>' : '';
   const waChart = waData.length ? '<div class="card chart-pad"><div class="chart-title">Mage (cm)</div>'+lineChartSVG(waData,'waist','var(--green)',false,parseFloat(settings.targetWaist)||0)+'</div>' : '';
 
   const hist = sorted.length ? '<div class="card"><div class="group-head">Historik</div>'
@@ -1186,7 +1188,7 @@ function trendsHTML(){
   const suffix = weekly ? ' · veckosnitt' : ' · per dag';
   const kcalChart = loggedDays.length ? '<div class="card chart-pad"><div class="chart-title">Energi'+suffix+'</div>'+barChartSVG(barData,'kcal','var(--amber)',kGoal,'kcal')+'</div>' : '';
   const protChart = loggedDays.length ? '<div class="card chart-pad"><div class="chart-title">Protein'+suffix+'</div>'+barChartSVG(barData,'protein','var(--green)',pGoal,'g')+'</div>' : '';
-  const weightChart = wData.length ? '<div class="card chart-pad"><div class="chart-title">Vikt (kg)</div>'+lineChartSVG(wData,'weight','var(--blue)',true,parseFloat(settings.targetWeight)||0)+'</div>' : '';
+  const weightChart = wData.length ? '<div class="card chart-pad"><div class="chart-title">Vikt (kg)</div>'+lineChartSVG(wData,'weight','var(--blue)',wData.length>=5,parseFloat(settings.targetWeight)||0)+'</div>' : '';
   const waistChart = waData.length ? '<div class="card chart-pad"><div class="chart-title">Mage (cm)</div>'+lineChartSVG(waData,'waist','var(--green)',false,parseFloat(settings.targetWaist)||0)+'</div>' : '';
 
   const anyData = loggedDays.length>0 || wData.length>0 || waData.length>0;
