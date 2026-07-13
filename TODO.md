@@ -43,8 +43,11 @@ AI-nyckeln synkas aldrig. Kvar för användaren:
    `SUPABASE_URL` / `SUPABASE_ANON_KEY` högst upp i `<script>`-blocket i `index.html`
    (sök på "moln-synk"), committa och pusha.
 
-**Känd begränsning (v1):** merge är additiv — en radering på en enhet kan återuppstå efter synk
-från en enhet som fortfarande har posten. Åtgärd vid behov: tombstones (raderingslogg) i v2.
+**Uppdatering 2026-07-14 (synk v2):** v1-begränsningen orsakade dataförlust + dubbletter i praktiken
+och är nu åtgärdad: alla poster har tidsstämpel (`up`), raderingar loggas som tombstones (rensas
+efter 90 dagar), molnsynken gör alltid hämta→slå ihop→skriv med versionskontroll på radens
+`updated_at` (skrivning nekas och görs om ifall en annan enhet hann emellan). Backup-import
+stämplar posterna med nutid och häver tombstones = medveten återställning vinner alltid.
 
 **Ursprunglig plan nedan (behållen som referens):**
 

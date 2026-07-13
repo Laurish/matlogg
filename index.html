@@ -284,12 +284,14 @@ const DEFAULT_FOODS = [
 ];
 
 /* ---------- lagring (sparas på din dator) ---------- */
-const LS = { meals:'matlogg.meals', body:'matlogg.body', settings:'matlogg.settings', apikey:'matlogg.apikey', aimodel:'matlogg.aimodel', foods:'matlogg.foods', favorites:'matlogg.favorites', lastExport:'matlogg.lastExport', lastSync:'matlogg.lastSync' };
+const LS = { meals:'matlogg.meals', body:'matlogg.body', settings:'matlogg.settings', apikey:'matlogg.apikey', aimodel:'matlogg.aimodel', foods:'matlogg.foods', favorites:'matlogg.favorites', tombstones:'matlogg.tombstones', lastExport:'matlogg.lastExport', lastSync:'matlogg.lastSync' };
 // nycklar som ingår i moln-synken (AI-nyckeln medvetet INTE med)
-const SYNC_KEYS = {}; [LS.meals, LS.body, LS.settings, LS.foods, LS.favorites, LS.aimodel].forEach(function(k){ SYNC_KEYS[k]=1; });
+const SYNC_KEYS = {}; [LS.meals, LS.body, LS.settings, LS.foods, LS.favorites, LS.aimodel, LS.tombstones].forEach(function(k){ SYNC_KEYS[k]=1; });
 function load(k, fb){ try{ const v=localStorage.getItem(k); return v?JSON.parse(v):fb; }catch(e){ return fb; } }
 function save(k, v){
   try{
+    // settings får en tidsstämpel vid varje användarändring så "nyast vinner" i synken
+    if(k===LS.settings && !syncSuppress && v && typeof v==='object') v.up = Date.now();
     localStorage.setItem(k, JSON.stringify(v));
     if(SYNC_KEYS[k] && !syncSuppress) scheduleSync();
   }
@@ -327,6 +329,14 @@ let foodFilter = ''; // sökfilter i skafferiet
 let editingFoodId = null; // id på livsmedel som redigeras inline i Skafferi
 let favorites = load(LS.favorites, []); // stjärnmärkta rätter: {id, desc, kcal, protein}
 let copySource = null; // vald källdag i "kopiera från annan dag" (null = dagen innan)
+/* raderingslogg ("tombstones"): {nyckel: raderingstid-ms} per samling — gör att raderingar
+   synkas som raderingar mellan enheter istället för att gamla kopior återuppstår */
+let tombstones = load(LS.tombstones, { meals:{}, body:{}, foods:{}, favorites:{} });
+['meals','body','foods','favorites'].forEach(function(c){ if(!tombstones[c]) tombstones[c]={}; });
+function markDeleted(col, key){
+  tombstones[col][key] = Date.now();
+  save(LS.tombstones, tombstones);
+}
 
 /* ---------- favoriter ---------- */
 function favKey(desc){ return (desc||'').trim().toLowerCase(); }
@@ -334,8 +344,8 @@ function isFavorite(desc){ const k=favKey(desc); return favorites.some(f=>favKey
 function toggleFavorite(entry){
   const k = favKey(entry.desc); if(!k) return;
   const idx = favorites.findIndex(f=>favKey(f.desc)===k);
-  if(idx>=0){ favorites.splice(idx,1); toast('Borttagen ur favoriter.'); }
-  else { favorites.push({ id: uid(), desc: entry.desc, kcal: entry.kcal||0, protein: entry.protein||0 }); toast('Sparad som favorit — finns nu alltid i Snabbval.'); }
+  if(idx>=0){ favorites.splice(idx,1); markDeleted('favorites', k); toast('Borttagen ur favoriter.'); }
+  else { favorites.push({ id: uid(), desc: entry.desc, kcal: entry.kcal||0, protein: entry.protein||0, up: Date.now() }); toast('Sparad som favorit — finns nu alltid i Snabbval.'); }
   save(LS.favorites, favorites);
 }
 
@@ -371,7 +381,8 @@ function syncStatusMsg(msg, isErr){
 }
 
 function collectState(){
-  return { meals: meals, body: body, settings: settings, foods: foods, favorites: favorites, aimodel: aiModel };
+  return { schema: 2, meals: meals, body: body, settings: settings, foods: foods,
+           favorites: favorites, aimodel: aiModel, tombstones: tombstones };
 }
 
 function initSync(){
@@ -380,45 +391,151 @@ function initSync(){
   sb.auth.onAuthStateChange(function(ev, session){
     const prevId = syncUser ? syncUser.id : null;
     syncUser = session ? session.user : null;
-    if(syncUser && syncUser.id !== prevId) fullSync(false);
+    if(syncUser && syncUser.id !== prevId){ remoteRev = null; fullSync(false); }
     if(!syncUser) syncStatusMsg('');
     if(tab==='mal') render();
   });
 }
 
-function pushState(){
-  if(!sb || !syncUser) return Promise.resolve();
-  return sb.from(SYNC_TABLE)
-    .upsert({ user_id: syncUser.id, data: collectState(), updated_at: new Date().toISOString() })
+/* ---- synk-merge: "nyast vinner" per post (fältet up = senast ändrad), raderingar propageras ---- */
+function tombOf(col, key){ return (tombstones[col]||{})[key] || 0; }
+function mergeSynced(inc){
+  inc = inc || {};
+  // 1) slå ihop raderingsloggarna (senaste raderingstid vinner)
+  const incT = inc.tombstones || {};
+  ['meals','body','foods','favorites'].forEach(function(col){
+    const it = incT[col] || {};
+    Object.keys(it).forEach(function(k){ if(it[k] > (tombstones[col][k]||0)) tombstones[col][k] = it[k]; });
+  });
+  // 2) måltider: per (dag, id) — nyare version vinner, raderade hålls borta
+  if(inc.meals && typeof inc.meals==='object'){
+    Object.keys(inc.meals).forEach(function(d){
+      const local = meals[d] || [];
+      const byId = {}; local.forEach(function(e){ byId[e.id] = e; });
+      (inc.meals[d]||[]).forEach(function(e){
+        if(!e || !e.id) return;
+        if(tombOf('meals', e.id) > (e.up||0)) return;
+        const ex = byId[e.id];
+        if(!ex){ byId[e.id] = e; local.push(e); }
+        else if((e.up||0) > (ex.up||0)){ Object.assign(ex, e); }
+      });
+      meals[d] = local;
+    });
+  }
+  Object.keys(meals).forEach(function(d){
+    meals[d] = (meals[d]||[]).filter(function(e){ return tombOf('meals', e.id) <= (e.up||0); });
+    if(!meals[d].length) delete meals[d];
+  });
+  // 3) kroppsmätningar: per datum
+  if(Array.isArray(inc.body)){
+    inc.body.forEach(function(r){
+      if(!r || !r.date) return;
+      if(tombOf('body', r.date) > (r.up||0)) return;
+      const i = body.findIndex(function(x){ return x.date===r.date; });
+      if(i<0) body.push(r);
+      else if((r.up||0) > (body[i].up||0)) body[i] = r;
+    });
+  }
+  body = body.filter(function(r){ return tombOf('body', r.date) <= (r.up||0); });
+  // 4) skafferi: per id
+  if(Array.isArray(inc.foods)){
+    inc.foods.forEach(function(f){
+      if(!f || !f.id) return;
+      if(tombOf('foods', f.id) > (f.up||0)) return;
+      const i = foods.findIndex(function(x){ return x.id===f.id; });
+      if(i<0) foods.push(f);
+      else if((f.up||0) > (foods[i].up||0)) foods[i] = f;
+    });
+  }
+  foods = foods.filter(function(f){ return tombOf('foods', f.id) <= (f.up||0); });
+  // 5) favoriter: per beskrivning
+  if(Array.isArray(inc.favorites)){
+    inc.favorites.forEach(function(f){
+      if(!f || !f.desc) return;
+      const k = favKey(f.desc);
+      if(tombOf('favorites', k) > (f.up||0)) return;
+      const i = favorites.findIndex(function(x){ return favKey(x.desc)===k; });
+      if(i<0) favorites.push(f);
+      else if((f.up||0) > (favorites[i].up||0)) favorites[i] = f;
+    });
+  }
+  favorites = favorites.filter(function(f){ return tombOf('favorites', favKey(f.desc)) <= (f.up||0); });
+  // 6) inställningar + AI-modell: nyaste settings-versionen vinner i sin helhet
+  if(inc.settings && typeof inc.settings==='object' && (inc.settings.up||0) > (settings.up||0)){
+    settings = Object.assign({}, settings, inc.settings);
+    if(inc.aimodel) aiModel = inc.aimodel;
+    applyTheme();
+  }
+  // 7) städa raderingsloggen (äldre än 90 dagar behövs inte längre)
+  const cutoff = Date.now() - 90*24*3600*1000;
+  ['meals','body','foods','favorites'].forEach(function(col){
+    Object.keys(tombstones[col]).forEach(function(k){ if(tombstones[col][k] < cutoff) delete tombstones[col][k]; });
+  });
+  save(LS.meals, meals); save(LS.body, body); save(LS.foods, foods);
+  save(LS.favorites, favorites); save(LS.settings, settings);
+  save(LS.aimodel, aiModel); save(LS.tombstones, tombstones);
+}
+
+/* ---- säker läs-slå ihop-skriv-cykel: hämta alltid molnet först, skriv bara om ingen hann före ---- */
+let remoteRev = null; // molnradens updated_at som vi senast såg (versionskontroll)
+
+function pullMerge(){
+  return sb.from(SYNC_TABLE).select('data,updated_at').eq('user_id', syncUser.id).maybeSingle()
     .then(function(r){
       if(r.error) throw r.error;
-      lastSyncMs = Date.now(); save(LS.lastSync, lastSyncMs);
-      syncStatusMsg('Synkad '+new Date(lastSyncMs).toLocaleTimeString('sv-SE',{hour:'2-digit',minute:'2-digit'}));
+      if(r.data){
+        remoteRev = r.data.updated_at;
+        syncSuppress = true;
+        try{ mergeSynced(r.data.data || {}); } finally { syncSuppress = false; }
+      } else {
+        remoteRev = null;
+      }
     });
+}
+
+function pushState(attempt){
+  if(!sb || !syncUser) return Promise.resolve();
+  attempt = attempt || 0;
+  const nowIso = new Date().toISOString();
+  const row = { user_id: syncUser.id, data: collectState(), updated_at: nowIso };
+  const q = remoteRev
+    ? sb.from(SYNC_TABLE).update(row).eq('user_id', syncUser.id).eq('updated_at', remoteRev).select('updated_at')
+    : sb.from(SYNC_TABLE).insert(row).select('updated_at');
+  return q.then(function(r){
+    if(r.error){
+      // raden fanns redan (skapad från annan enhet) → hämta och försök igen
+      if(!remoteRev && r.error.code==='23505' && attempt<2){
+        return pullMerge().then(function(){ return pushState(attempt+1); });
+      }
+      throw r.error;
+    }
+    if(remoteRev && (!r.data || !r.data.length)){
+      // versionen stämde inte = en annan enhet skrev nyss → hämta dess data, slå ihop, försök igen
+      if(attempt>=2) throw new Error('en annan enhet synkar samtidigt — försök strax igen');
+      return pullMerge().then(function(){ return pushState(attempt+1); });
+    }
+    remoteRev = (r.data && r.data[0]) ? r.data[0].updated_at : nowIso;
+    lastSyncMs = Date.now(); save(LS.lastSync, lastSyncMs);
+    syncStatusMsg('Synkad '+new Date(lastSyncMs).toLocaleTimeString('sv-SE',{hour:'2-digit',minute:'2-digit'}));
+  });
 }
 
 function scheduleSync(){
   if(!sb || !syncUser) return;
   clearTimeout(syncTimer);
   syncTimer = setTimeout(function(){
-    pushState().catch(function(err){ syncStatusMsg('Synkfel: '+((err&&err.message)||'okänt'), true); });
+    if(syncBusy){ scheduleSync(); return; } // pågående synk — försök igen strax
+    fullSync(false);
   }, 2000);
 }
 
-/* hämta molnets data, slå ihop med lokalt (samma regler som import), skicka upp resultatet */
+/* hämta molnet, slå ihop, skicka upp resultatet — hela cykeln, alltid i den ordningen */
 function fullSync(manual){
-  if(!sb || !syncUser || syncBusy) return;
+  if(!sb || !syncUser) return;
+  if(syncBusy){ if(!manual) scheduleSync(); return; }
   syncBusy = true; syncStatusMsg('Synkar…');
-  sb.from(SYNC_TABLE).select('data').eq('user_id', syncUser.id).maybeSingle()
-    .then(function(r){
-      if(r.error) throw r.error;
-      if(r.data && r.data.data){
-        syncSuppress = true;
-        try{ mergeData(r.data.data); } finally { syncSuppress = false; }
-        render();
-      }
-      return pushState();
-    })
+  pullMerge()
+    .then(function(){ render(); return pushState(0); })
     .then(function(){ if(manual) toast('Synkat med molnet.'); })
     .catch(function(err){
       const m = (err && err.message) || 'okänt fel';
@@ -1238,6 +1355,7 @@ function wireSkafferi(){
     const a = b.dataset.act;
     if(a==='food-del'){
       if(confirm('Ta bort livsmedlet från skafferiet?')){
+        markDeleted('foods', b.dataset.id);
         foods = foods.filter(f=>f.id!==b.dataset.id);
         if(editingFoodId===b.dataset.id) editingFoodId=null;
         save(LS.foods, foods); render();
@@ -1249,14 +1367,16 @@ function wireSkafferi(){
       if(idx>=0){
         const d = readFood('ef');
         if(!d.name){ toast('Ange ett namn.', true); return; }
-        foods[idx] = Object.assign({}, foods[idx], d);
+        foods[idx] = Object.assign({}, foods[idx], d, { up: Date.now() });
         save(LS.foods, foods);
       }
       editingFoodId=null; render();
     }
     else if(a==='food-reset'){
       if(confirm('Återställ skafferiet till standardlistan? Egna livsmedel tas bort.')){
-        foods = DEFAULT_FOODS.map(f=>Object.assign({}, f));
+        foods.forEach(function(f){ markDeleted('foods', f.id); });
+        const ts = Date.now()+1; // vinner över nyss satta tombstones för standard-id:na
+        foods = DEFAULT_FOODS.map(f=>Object.assign({}, f, { up: ts }));
         save(LS.foods, foods); render();
         toast('Standardskafferiet återställt.');
       }
@@ -1265,7 +1385,7 @@ function wireSkafferi(){
   if($('#food-add')) $('#food-add').onclick = function(){
     const d = readFood('nf');
     if(!d.name){ toast('Ange ett namn.', true); $('#nf-name').focus(); return; }
-    foods.push(Object.assign({ id: uid() }, d));
+    foods.push(Object.assign({ id: uid(), up: Date.now() }, d));
     save(LS.foods, foods); render();
     toast('Livsmedel tillagt i skafferiet.');
   };
@@ -1293,7 +1413,7 @@ function wireToday(){
     if(a==='prev'){ day=shiftDay(day,-1); copySource=null; render(); }
     else if(a==='next'){ if(day!==todayStr()){ day=shiftDay(day,1); copySource=null; render(); } }
     else if(a==='today'){ day=todayStr(); copySource=null; render(); }
-    else if(a==='del-meal'){ if(confirm('Ta bort den här måltiden?')){ meals[day]=(meals[day]||[]).filter(e=>e.id!==b.dataset.id); save(LS.meals,meals); render(); } }
+    else if(a==='del-meal'){ if(confirm('Ta bort den här måltiden?')){ markDeleted('meals', b.dataset.id); meals[day]=(meals[day]||[]).filter(e=>e.id!==b.dataset.id); save(LS.meals,meals); render(); } }
     else if(a==='fav-meal'){
       const entry = (meals[day]||[]).find(e=>e.id===b.dataset.id);
       if(entry){ toggleFavorite(entry); render(); }
@@ -1305,7 +1425,7 @@ function wireToday(){
       const e = srcArr.find(x=>x.id===b.dataset.id);
       if(e){
         const prevProtein = totalsFor(day).protein;
-        meals[day] = (meals[day]||[]).concat({ id: uid(), type: e.type, desc: e.desc, kcal: e.kcal, protein: e.protein });
+        meals[day] = (meals[day]||[]).concat({ id: uid(), type: e.type, desc: e.desc, kcal: e.kcal, protein: e.protein, up: Date.now() });
         save(LS.meals, meals); maybeCelebrate(prevProtein); render();
         toast('Kopierad: '+e.desc);
       }
@@ -1315,7 +1435,7 @@ function wireToday(){
       if(srcArr.length){
         const prevProtein = totalsFor(day).protein;
         meals[day] = (meals[day]||[]).concat(srcArr.map(function(e){
-          return { id: uid(), type: e.type, desc: e.desc, kcal: e.kcal, protein: e.protein };
+          return { id: uid(), type: e.type, desc: e.desc, kcal: e.kcal, protein: e.protein, up: Date.now() };
         }));
         save(LS.meals, meals); maybeCelebrate(prevProtein); render();
         toast('Kopierade '+srcArr.length+' måltid'+(srcArr.length===1?'':'er')+' från '+prettyDate(b.dataset.src)+'.');
@@ -1334,7 +1454,8 @@ function wireToday(){
         arr[idx]=Object.assign({}, arr[idx], { desc: d||arr[idx].desc,
           type: tSel ? tSel.dataset.etype : arr[idx].type,
           kcal: Math.max(0,Math.round(parseFloat($('#edit-kcal').value)||0)),
-          protein: Math.max(0,Math.round(parseFloat($('#edit-protein').value)||0)) });
+          protein: Math.max(0,Math.round(parseFloat($('#edit-protein').value)||0)),
+          up: Date.now() });
         save(LS.meals, meals);
       }
       editingMealId=null; maybeCelebrate(prevProtein); render();
@@ -1347,7 +1468,8 @@ function wireToday(){
       const grp = arr.filter(e=>e.type===mt);
       if(grp.length>1 && confirm('Slå ihop '+grp.length+' rader i '+mealTypeLabel(mt)+' till en rad?')){
         const sum = grp.reduce(function(a2,e){ return {kcal:a2.kcal+e.kcal, protein:a2.protein+e.protein}; }, {kcal:0,protein:0});
-        const merged = { id: uid(), type: mt, desc: grp.map(e=>e.desc).join(', '), kcal: sum.kcal, protein: sum.protein };
+        grp.forEach(function(e){ markDeleted('meals', e.id); }); // originalen ersätts av den nya raden
+        const merged = { id: uid(), type: mt, desc: grp.map(e=>e.desc).join(', '), kcal: sum.kcal, protein: sum.protein, up: Date.now() };
         const out=[]; let placed=false;
         arr.forEach(function(e){ if(e.type===mt){ if(!placed){ out.push(merged); placed=true; } } else { out.push(e); } });
         meals[day]=out; save(LS.meals, meals); render();
@@ -1357,7 +1479,7 @@ function wireToday(){
     else if(a==='ai-edit'){ aiEditing=true; render(); }
     else if(a==='quick'){
       const prevProtein = totalsFor(day).protein;
-      const entry = { id: uid(), type: mealType,
+      const entry = { id: uid(), type: mealType, up: Date.now(),
         desc: b.dataset.desc, kcal: Number(b.dataset.kcal)||0, protein: Number(b.dataset.protein)||0 };
       meals[day] = (meals[day]||[]).concat(entry); save(LS.meals, meals); maybeCelebrate(prevProtein); render();
     }
@@ -1424,7 +1546,7 @@ function addMeal(){
     const sum = builderSum();
     const auto = builderRows.map(function(r){ const f=foodById(r.foodId); return f ? (f.name+' '+foodAmountLabel(f,r.amount)) : ''; }).filter(Boolean).join(', ');
     const typed = ($('#m-desc') && $('#m-desc').value || '').trim();
-    meals[day] = (meals[day]||[]).concat({ id: uid(), type: mealType, desc: typed||auto, kcal: sum.kcal, protein: sum.protein });
+    meals[day] = (meals[day]||[]).concat({ id: uid(), type: mealType, desc: typed||auto, kcal: sum.kcal, protein: sum.protein, up: Date.now() });
     save(LS.meals, meals);
     builderRows = [];
     maybeCelebrate(prevProtein);
@@ -1438,7 +1560,7 @@ function addMeal(){
     const cur = readCurrentPart();
     const parts = cur ? manualParts.concat([cur]) : manualParts.slice();
     const sum = parts.reduce(function(a,p){ return {kcal:a.kcal+p.kcal, protein:a.protein+p.protein}; }, {kcal:0,protein:0});
-    meals[day] = (meals[day]||[]).concat({ id: uid(), type: mealType,
+    meals[day] = (meals[day]||[]).concat({ id: uid(), type: mealType, up: Date.now(),
       desc: parts.map(function(p){ return p.desc; }).join(', '), kcal: sum.kcal, protein: sum.protein });
     save(LS.meals, meals);
     manualParts = [];
@@ -1450,7 +1572,7 @@ function addMeal(){
   const desc = $('#m-desc').value.trim(); if(!desc) return;
   const entry = {
     id: uid(),
-    type: mealType, desc:desc,
+    type: mealType, desc:desc, up: Date.now(),
     kcal: Math.max(0, Math.round(parseFloat($('#m-kcal').value)||0)),
     protein: Math.max(0, Math.round(parseFloat($('#m-protein').value)||0))
   };
@@ -1463,7 +1585,10 @@ function addMeal(){
 function wireBody(){
   $('#tab-content').onclick = function(ev){
     const b = ev.target.closest('[data-act]'); if(!b) return;
-    if(b.dataset.act==='del-measure'){ if(confirm('Ta bort den här mätningen?')){ body = body.filter(x=>x.id!==b.dataset.id); save(LS.body, body); render(); } }
+    if(b.dataset.act==='del-measure'){ if(confirm('Ta bort den här mätningen?')){
+      const rec = body.find(x=>x.id===b.dataset.id);
+      if(rec) markDeleted('body', rec.date);
+      body = body.filter(x=>x.id!==b.dataset.id); save(LS.body, body); render(); } }
   };
   $('#b-add').onclick = function(){
     const d = $('#b-date').value || todayStr();
@@ -1472,9 +1597,9 @@ function wireBody(){
     if(w==null && wa==null) return;
     const idx = body.findIndex(x=>x.date===d);
     if(idx>=0){
-      body[idx] = Object.assign({}, body[idx], { weight: w!=null?w:body[idx].weight, waist: wa!=null?wa:body[idx].waist });
+      body[idx] = Object.assign({}, body[idx], { weight: w!=null?w:body[idx].weight, waist: wa!=null?wa:body[idx].waist, up: Date.now() });
     } else {
-      body.push({ id: uid(), date:d, weight:w, waist:wa });
+      body.push({ id: uid(), date:d, weight:w, waist:wa, up: Date.now() });
     }
     save(LS.body, body);
     render();
@@ -1540,13 +1665,15 @@ function exportData(){
   backupStatus('Säkerhetskopia sparad till din nedladdningsmapp.', 'var(--green)');
 }
 
-/* slår ihop inkommande data (backup-fil eller moln) med lokalt — additivt, inget skrivs över blint */
+/* slår ihop en importerad BACKUP-FIL med lokalt — additivt, och importen häver
+   tidigare raderingar (att läsa in en backup är ett medvetet "återställ") */
 function mergeData(data){
   // måltider: slå ihop per dag, behåll allt (dubbletter filtreras på id)
   if(data.meals && typeof data.meals==='object'){
     Object.keys(data.meals).forEach(function(d){
       const incoming = data.meals[d]||[], existing = meals[d]||[];
       const ids = {}; existing.forEach(function(e){ ids[e.id]=1; });
+      incoming.forEach(function(e){ if(e && e.id){ delete tombstones.meals[e.id]; e.up = Date.now(); } });
       meals[d] = existing.concat(incoming.filter(function(e){ return !ids[e.id]; }));
     });
     save(LS.meals, meals);
@@ -1555,14 +1682,16 @@ function mergeData(data){
   if(Array.isArray(data.body)){
     data.body.forEach(function(inc){
       if(!inc || !inc.date) return;
+      delete tombstones.body[inc.date];
       const idx = body.findIndex(function(x){ return x.date===inc.date; });
       if(idx>=0){
         body[idx] = Object.assign({}, body[idx], {
           weight: typeof inc.weight==='number' ? inc.weight : body[idx].weight,
-          waist:  typeof inc.waist==='number'  ? inc.waist  : body[idx].waist
+          waist:  typeof inc.waist==='number'  ? inc.waist  : body[idx].waist,
+          up: Date.now()
         });
       } else {
-        body.push({ id: inc.id || uid(), date: inc.date,
+        body.push({ id: inc.id || uid(), date: inc.date, up: Date.now(),
           weight: typeof inc.weight==='number' ? inc.weight : null,
           waist:  typeof inc.waist==='number'  ? inc.waist  : null });
       }
@@ -1573,22 +1702,26 @@ function mergeData(data){
   if(Array.isArray(data.foods)){
     data.foods.forEach(function(inc){
       if(!inc || !inc.id) return;
+      delete tombstones.foods[inc.id];
       const idx = foods.findIndex(function(f){ return f.id===inc.id; });
-      if(idx>=0) foods[idx] = Object.assign({}, foods[idx], inc);
-      else foods.push(inc);
+      if(idx>=0) foods[idx] = Object.assign({}, foods[idx], inc, { up: Date.now() });
+      else foods.push(Object.assign({}, inc, { up: Date.now() }));
     });
     save(LS.foods, foods);
   }
   // favoriter: slå ihop per beskrivning (undvik dubbletter)
   if(Array.isArray(data.favorites)){
     data.favorites.forEach(function(inc){
-      if(!inc || !inc.desc || isFavorite(inc.desc)) return;
-      favorites.push({ id: inc.id || uid(), desc: inc.desc, kcal: inc.kcal||0, protein: inc.protein||0 });
+      if(!inc || !inc.desc) return;
+      delete tombstones.favorites[favKey(inc.desc)];
+      if(isFavorite(inc.desc)) return;
+      favorites.push({ id: inc.id || uid(), desc: inc.desc, kcal: inc.kcal||0, protein: inc.protein||0, up: Date.now() });
     });
     save(LS.favorites, favorites);
   }
   if(data.settings && typeof data.settings==='object'){ settings = Object.assign({}, settings, data.settings); save(LS.settings, settings); applyTheme(); }
   if(data.aimodel){ aiModel = data.aimodel; save(LS.aimodel, aiModel); }
+  save(LS.tombstones, tombstones);
 }
 
 function importData(file){
