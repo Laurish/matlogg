@@ -238,6 +238,7 @@
       <button class="linkbtn" id="import-btn">⬆ Importera</button>
       <input type="file" id="import-file" accept="application/json,.json" style="display:none">
       <div id="backup-status" class="small" style="margin-top:8px"></div>
+      <div id="app-version" class="small" style="margin-top:10px;opacity:.65"></div>
     </div>
   </div>
 
@@ -362,6 +363,7 @@ function addMethod(){
 const SUPABASE_URL = 'https://schgcawfirvzlemwdoqf.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNjaGdjYXdmaXJ2emxlbXdkb3FmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgwMDIyMzcsImV4cCI6MjA5MzU3ODIzN30.6HYHPlZF3gXlFoR30qVJjJ6-zVYyKEv8P-MTrNBOjYo';
 const SYNC_TABLE = 'matlogg_state';
+const APP_VERSION = 7; // håll i takt med CACHE_VERSION i sw.js
 
 let sb = null;              // supabase-klient
 let syncUser = null;        // inloggad användare (null = utloggad)
@@ -539,8 +541,11 @@ function fullSync(manual){
     .then(function(){ if(manual) toast('Synkat med molnet.'); })
     .catch(function(err){
       const m = (err && err.message) || 'okänt fel';
-      syncStatusMsg('Synkfel: '+m, true);
+      syncStatusMsg('Synkfel: '+m+' — försöker igen automatiskt.', true);
       if(manual) toast('Kunde inte synka: '+m, true);
+      // självläkning: försök igen om 30 s istället för att bli tyst stående
+      clearTimeout(syncTimer);
+      syncTimer = setTimeout(function(){ fullSync(false); }, 30000);
     })
     .then(function(){ syncBusy = false; if(tab==='mal') render(); });
 }
@@ -1779,6 +1784,7 @@ $('#import-btn').onclick = function(){ $('#import-file').click(); };
 updateBackupReminder();
 $('#import-file').onchange = function(){ if(this.files && this.files[0]){ importData(this.files[0]); this.value=''; } };
 render();
+if($('#app-version')) $('#app-version').textContent = 'Matlogg v'+APP_VERSION;
 initSync();
 /* hämta färska data när appen får fokus igen (t.ex. växlar från mobilen till datorn) */
 document.addEventListener('visibilitychange', function(){
