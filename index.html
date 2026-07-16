@@ -285,8 +285,8 @@ const DEFAULT_FOODS = [
 ];
 
 /* ---------- lagring (sparas på din dator) ---------- */
-const LS = { meals:'matlogg.meals', body:'matlogg.body', settings:'matlogg.settings', apikey:'matlogg.apikey', aimodel:'matlogg.aimodel', foods:'matlogg.foods', favorites:'matlogg.favorites', tombstones:'matlogg.tombstones', lastExport:'matlogg.lastExport', lastSync:'matlogg.lastSync' };
-// nycklar som ingår i moln-synken (AI-nyckeln medvetet INTE med)
+const LS = { meals:'matlogg.meals', body:'matlogg.body', settings:'matlogg.settings', apikey:'matlogg.apikey', aimodel:'matlogg.aimodel', foods:'matlogg.foods', favorites:'matlogg.favorites', tombstones:'matlogg.tombstones', draft:'matlogg.draft', lastExport:'matlogg.lastExport', lastSync:'matlogg.lastSync' };
+// nycklar som ingår i moln-synken (AI-nyckeln OCH utkastet medvetet INTE med)
 const SYNC_KEYS = {}; [LS.meals, LS.body, LS.settings, LS.foods, LS.favorites, LS.aimodel, LS.tombstones].forEach(function(k){ SYNC_KEYS[k]=1; });
 function load(k, fb){ try{ const v=localStorage.getItem(k); return v?JSON.parse(v):fb; }catch(e){ return fb; } }
 function save(k, v){
@@ -357,13 +357,43 @@ function addMethod(){
   return apiKey ? 'ai' : 'manuell';
 }
 
+/* ---------- utkastskydd: bevara halvskriven måltid om appen dödas i bakgrunden (mobil) ----------
+   Sparas lokalt i LS.draft — INTE i SYNC_KEYS, alltså aldrig till molnet. */
+let draftTimer = null;
+let pendingDraftFields = null; // fältvärden att fylla i efter första render
+function saveDraft(){
+  const g = function(id){ const el=$(id); return el ? el.value : ''; };
+  const desc=g('#m-desc'), kcal=g('#m-kcal'), protein=g('#m-protein');
+  if(!(desc || kcal || protein || builderRows.length || manualParts.length)){
+    try{ localStorage.removeItem(LS.draft); }catch(e){}
+    return;
+  }
+  try{ localStorage.setItem(LS.draft, JSON.stringify({ desc:desc, kcal:kcal, protein:protein,
+    mealType:mealType, builderRows:builderRows, manualParts:manualParts })); }catch(e){}
+}
+function saveDraftDebounced(){ clearTimeout(draftTimer); draftTimer=setTimeout(saveDraft, 500); }
+function clearDraft(){ clearTimeout(draftTimer); try{ localStorage.removeItem(LS.draft); }catch(e){} }
+function restoreDraft(){
+  const d = load(LS.draft, null); if(!d) return;
+  if(d.mealType) mealType = d.mealType;
+  if(Array.isArray(d.builderRows)) builderRows = d.builderRows;
+  if(Array.isArray(d.manualParts)) manualParts = d.manualParts;
+  if(d.desc || d.kcal || d.protein) pendingDraftFields = { desc:d.desc||'', kcal:d.kcal||'', protein:d.protein||'' };
+}
+function applyPendingDraftFields(){
+  if(!pendingDraftFields) return;
+  const set=function(id,v){ const el=$(id); if(el && v) el.value=v; };
+  set('#m-desc', pendingDraftFields.desc); set('#m-kcal', pendingDraftFields.kcal); set('#m-protein', pendingDraftFields.protein);
+  pendingDraftFields = null;
+}
+
 /* ---------- moln-synk (Supabase) ----------
    Fyll i projektets URL och anon-nyckel (Settings → API i Supabase-dashboarden).
    Anon-nyckeln är gjord för att ligga i klientkod — säkerheten sitter i RLS-policyerna. */
 const SUPABASE_URL = 'https://schgcawfirvzlemwdoqf.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNjaGdjYXdmaXJ2emxlbXdkb3FmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgwMDIyMzcsImV4cCI6MjA5MzU3ODIzN30.6HYHPlZF3gXlFoR30qVJjJ6-zVYyKEv8P-MTrNBOjYo';
 const SYNC_TABLE = 'matlogg_state';
-const APP_VERSION = 8; // håll i takt med CACHE_VERSION i sw.js
+const APP_VERSION = 9; // håll i takt med CACHE_VERSION i sw.js
 
 let sb = null;              // supabase-klient
 let syncUser = null;        // inloggad användare (null = utloggad)
@@ -392,12 +422,17 @@ function initSync(){
   if(!syncConfigured()) return;
   sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   sb.auth.onAuthStateChange(function(ev, session){
+    const prevBanner = authResolved && !syncUser;
     const prevId = syncUser ? syncUser.id : null;
     authResolved = true;
     syncUser = session ? session.user : null;
-    if(syncUser && syncUser.id !== prevId){ remoteRev = null; fullSync(false); }
+    const newId = syncUser ? syncUser.id : null;
+    const loginChanged = newId !== prevId; // falskt vid TOKEN_REFRESHED (samma användare)
+    if(loginChanged && syncUser){ remoteRev = null; fullSync(false); } // fullSync renderar vid behov
     if(!syncUser) syncStatusMsg('');
-    render(); // uppdatera ev. utloggad-banner på Idag + synk-kortet på Mål
+    const newBanner = authResolved && !syncUser;
+    // rendera bara om utloggad-bannern byter läge, eller om login ändrats medan Mål-fliken visas (synk-kortet)
+    if(newBanner !== prevBanner || (loginChanged && tab==='mal')) render(true);
   });
 }
 
@@ -405,6 +440,7 @@ function initSync(){
 function tombOf(col, key){ return (tombstones[col]||{})[key] || 0; }
 function mergeSynced(inc){
   inc = inc || {};
+  const before = JSON.stringify([meals, body, foods, favorites, settings, aiModel]);
   // 1) slå ihop raderingsloggarna (senaste raderingstid vinner)
   const incT = inc.tombstones || {};
   ['meals','body','foods','favorites'].forEach(function(col){
@@ -478,6 +514,8 @@ function mergeSynced(inc){
   save(LS.meals, meals); save(LS.body, body); save(LS.foods, foods);
   save(LS.favorites, favorites); save(LS.settings, settings);
   save(LS.aimodel, aiModel); save(LS.tombstones, tombstones);
+  // returnera om något faktiskt ändrades (så synken kan avstå från onödig omritning)
+  return JSON.stringify([meals, body, foods, favorites, settings, aiModel]) !== before;
 }
 
 /* ---- säker läs-slå ihop-skriv-cykel: hämta alltid molnet först, skriv bara om ingen hann före ---- */
@@ -490,10 +528,12 @@ function pullMerge(){
       if(r.data){
         remoteRev = r.data.updated_at;
         syncSuppress = true;
-        try{ mergeSynced(r.data.data || {}); } finally { syncSuppress = false; }
-      } else {
-        remoteRev = null;
+        let changed = false;
+        try{ changed = mergeSynced(r.data.data || {}); } finally { syncSuppress = false; }
+        return changed;
       }
+      remoteRev = null;
+      return false;
     });
 }
 
@@ -539,7 +579,7 @@ function fullSync(manual){
   if(syncBusy){ if(!manual) scheduleSync(); return; }
   syncBusy = true; syncStatusMsg('Synkar…');
   pullMerge()
-    .then(function(){ render(); return pushState(0); })
+    .then(function(changed){ if(changed) render(true); return pushState(0); })
     .then(function(){ if(manual) toast('Synkat med molnet.'); })
     .catch(function(err){
       const m = (err && err.message) || 'okänt fel';
@@ -549,7 +589,7 @@ function fullSync(manual){
       clearTimeout(syncTimer);
       syncTimer = setTimeout(function(){ fullSync(false); }, 30000);
     })
-    .then(function(){ syncBusy = false; if(tab==='mal') render(); });
+    .then(function(){ syncBusy = false; if(tab==='mal') render(true); });
 }
 
 function syncSignIn(create){
@@ -811,7 +851,7 @@ function lineChartSVG(data, key, color, withAvg, goal){
 }
 
 /* ---------- rendering ---------- */
-function render(){
+function render(preserveForm){
   const tabs = { idag:'#tab-idag', kropp:'#tab-kropp', trender:'#tab-trender', mal:'#tab-mal', skafferi:'#tab-skafferi' };
   Object.keys(tabs).forEach(function(t){
     const el = $(tabs[t]); if(!el) return;
@@ -819,6 +859,20 @@ function render(){
     el.setAttribute('aria-selected', tab===t ? 'true' : 'false');
   });
   const tc0 = $('#tab-content');
+  // bevara oskrivna formulärvärden + fokus/markör vid bakgrundsomritningar (synk, fokusbyte)
+  let saved = null, focusInfo = null;
+  if(preserveForm){
+    saved = {};
+    const active = document.activeElement;
+    tc0.querySelectorAll('input, select, textarea').forEach(function(el){
+      if(!el.id || el.type==='file' || el.type==='checkbox' || el.type==='radio') return;
+      saved[el.id] = el.value;
+      if(el===active){
+        focusInfo = { id: el.id, start: null, end: null };
+        try{ focusInfo.start = el.selectionStart; focusInfo.end = el.selectionEnd; }catch(_){}
+      }
+    });
+  }
   tc0.ontouchstart = null; tc0.ontouchend = null; // svep gäller bara Idag, sätts om i wireToday
   tc0.innerHTML =
       tab==='idag' ? todayHTML()
@@ -831,6 +885,16 @@ function render(){
   else if(tab==='trender') wireTrends();
   else if(tab==='mal') wireMal();
   else wireSkafferi();
+  if(saved){
+    Object.keys(saved).forEach(function(id){
+      const el = document.getElementById(id);
+      if(el && el.type!=='file' && el.type!=='checkbox' && el.type!=='radio') el.value = saved[id];
+    });
+    if(focusInfo){
+      const el = document.getElementById(focusInfo.id);
+      if(el){ try{ el.focus(); if(focusInfo.start!=null) el.setSelectionRange(focusInfo.start, focusInfo.end); }catch(_){} }
+    }
+  }
 }
 
 function mealRowHTML(e){
@@ -1476,8 +1540,8 @@ function wireToday(){
       }
       editingMealId=null; maybeCelebrate(prevProtein); render();
     }
-    else if(a==='builder-del'){ builderRows.splice(parseInt(b.dataset.i,10),1); render(); }
-    else if(a==='part-del'){ manualParts.splice(parseInt(b.dataset.i,10),1); render(); }
+    else if(a==='builder-del'){ builderRows.splice(parseInt(b.dataset.i,10),1); render(); saveDraft(); }
+    else if(a==='part-del'){ manualParts.splice(parseInt(b.dataset.i,10),1); render(); saveDraft(); }
     else if(a==='merge-group'){
       const mt = b.dataset.mtype;
       const arr = meals[day]||[];
@@ -1506,6 +1570,7 @@ function wireToday(){
   if($('#b-add-row')) $('#b-add-row').onclick = addBuilderRow;
   if($('#b-amount')) $('#b-amount').onkeydown = function(e){ if(e.key==='Enter') addBuilderRow(); };
   if($('#m-desc')) $('#m-desc').onkeydown = function(e){ if(e.key==='Enter' && addMethod()==='ai' && apiKey && !aiEditing) runEstimate(); };
+  ['#m-desc','#m-kcal','#m-protein'].forEach(function(id){ const el=$(id); if(el) el.addEventListener('input', saveDraftDebounced); });
   if($('#copy-date')) $('#copy-date').onchange = function(){ if(this.value){ copySource = this.value; render(); } };
 
   // svep vänster/höger för att byta dag (mobil)
@@ -1537,6 +1602,7 @@ function addBuilderRow(){
   builderRows.push({ foodId: sel.value, amount: amt });
   render();
   const a = $('#b-amount'); if(a) a.focus();
+  saveDraft();
 }
 
 function readCurrentPart(){
@@ -1553,6 +1619,7 @@ function addPart(){
   manualParts.push(p);
   render(); // fälten byggs om tomma
   const d = $('#m-desc'); if(d) d.focus();
+  saveDraft();
 }
 
 function addMeal(){
@@ -1565,6 +1632,7 @@ function addMeal(){
     meals[day] = (meals[day]||[]).concat({ id: uid(), type: mealType, desc: typed||auto, kcal: sum.kcal, protein: sum.protein, up: Date.now() });
     save(LS.meals, meals);
     builderRows = [];
+    clearDraft();
     maybeCelebrate(prevProtein);
     render();
     toast('Måltid tillagd från skafferiet.');
@@ -1580,6 +1648,7 @@ function addMeal(){
       desc: parts.map(function(p){ return p.desc; }).join(', '), kcal: sum.kcal, protein: sum.protein });
     save(LS.meals, meals);
     manualParts = [];
+    clearDraft();
     maybeCelebrate(prevProtein);
     render();
     toast('Måltid med '+parts.length+' delar tillagd som en rad.');
@@ -1594,6 +1663,7 @@ function addMeal(){
   };
   meals[day] = (meals[day]||[]).concat(entry);
   save(LS.meals, meals);
+  clearDraft();
   maybeCelebrate(prevProtein);
   render();
 }
@@ -1792,7 +1862,9 @@ $('#export-btn').onclick = exportData;
 $('#import-btn').onclick = function(){ $('#import-file').click(); };
 updateBackupReminder();
 $('#import-file').onchange = function(){ if(this.files && this.files[0]){ importData(this.files[0]); this.value=''; } };
+restoreDraft();        // återställ ev. halvskriven måltid (mobil kan ha dödat fliken)
 render();
+applyPendingDraftFields(); // fyll i beskrivning/kcal/protein från utkastet
 if($('#app-version')) $('#app-version').textContent = 'Matlogg v'+APP_VERSION;
 initSync();
 /* hämta färska data när appen får fokus igen (t.ex. växlar från mobilen till datorn) */
