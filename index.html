@@ -141,6 +141,7 @@
                border-top:1px solid var(--border); font-size:14px; font-weight:600;}
   .builder-add{display:flex; gap:8px; align-items:flex-end;}
   .builder-add .grow{flex:1;}
+  .builder-row .ei-amt, .builder-row .ep-kcal, .builder-row .ep-protein{ width:60px; padding:6px 8px; font-size:14px; border-radius:8px; }
   label.field-label{display:block; font-size:12px; color:var(--muted); margin:0 0 4px 2px;}
   .toast{position:fixed; left:50%; bottom:24px; transform:translateX(-50%) translateY(20px); z-index:10000;
          background:var(--tip-bg); color:var(--tip-fg); font-size:13px; padding:10px 16px; border-radius:10px; opacity:0;
@@ -326,6 +327,8 @@ let mealType = 'frukost';
 let builderRows = [];   // transient: rader i livsmedelsbyggaren på Idag
 let manualParts = [];   // transient: delar i manuell/AI-inmatning som blir EN måltidsrad
 let editingMealId = null; // id på måltid som redigeras inline
+let editItems = null;   // arbetskopia av ingredienser (items) medan en måltid redigeras
+let editParts = null;   // arbetskopia av delar (parts) medan en måltid redigeras
 let foodFilter = ''; // sökfilter i skafferiet
 let editingFoodId = null; // id på livsmedel som redigeras inline i Skafferi
 let favorites = load(LS.favorites, []); // stjärnmärkta rätter: {id, desc, kcal, protein}
@@ -393,7 +396,7 @@ function applyPendingDraftFields(){
 const SUPABASE_URL = 'https://schgcawfirvzlemwdoqf.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNjaGdjYXdmaXJ2emxlbXdkb3FmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgwMDIyMzcsImV4cCI6MjA5MzU3ODIzN30.6HYHPlZF3gXlFoR30qVJjJ6-zVYyKEv8P-MTrNBOjYo';
 const SYNC_TABLE = 'matlogg_state';
-const APP_VERSION = 9; // håll i takt med CACHE_VERSION i sw.js
+const APP_VERSION = 10; // håll i takt med CACHE_VERSION i sw.js
 
 let sb = null;              // supabase-klient
 let syncUser = null;        // inloggad användare (null = utloggad)
@@ -681,6 +684,26 @@ function foodMacros(food, amount){
 }
 function foodAmountLabel(food, amount){ const a = parseFloat(amount)||0; return round1(a)+' '+food.unit; }
 
+/* ---------- ingredienser (items) & delar (parts) i en måltid ----------
+   item = {name, unit, kcal, protein, amount} där kcal/protein är BASEN (per 100 g/ml, el. per st) —
+   en frusen kopia av livsmedlet, så senare skafferiändringar inte påverkar historiken.
+   part = {desc, kcal, protein} med redan uträknade värden. */
+function itemsSum(items){
+  return (items||[]).reduce(function(a,it){ const m=foodMacros(it, it.amount); return {kcal:a.kcal+m.kcal, protein:a.protein+m.protein}; }, {kcal:0,protein:0});
+}
+function sumParts(parts){ // OBS: befintlig partsSum(extra) jobbar mot manualParts — detta är den generiska
+  return (parts||[]).reduce(function(a,p){ return {kcal:a.kcal+(parseFloat(p.kcal)||0), protein:a.protein+(parseFloat(p.protein)||0)}; }, {kcal:0,protein:0});
+}
+function autoDescFromItems(items){ return (items||[]).map(function(it){ return it.name+' '+foodAmountLabel(it, it.amount); }).join(', '); }
+function autoDescFromParts(parts){ return (parts||[]).map(function(p){ return p.desc; }).join(', '); }
+/* djupkopia av en måltidspost (nytt id + up), inkl. ev. items/parts */
+function copyMealEntry(e){
+  const n = { id: uid(), type: e.type, desc: e.desc, kcal: e.kcal, protein: e.protein, up: Date.now() };
+  if(Array.isArray(e.items)) n.items = e.items.map(function(it){ return Object.assign({}, it); });
+  if(Array.isArray(e.parts)) n.parts = e.parts.map(function(p){ return Object.assign({}, p); });
+  return n;
+}
+
 const MEAL_TYPES = [
   {id:'frukost', label:'Frukost', emoji:'🍳'}, {id:'lunch', label:'Lunch', emoji:'🥗'},
   {id:'middag', label:'Middag', emoji:'🍽️'}, {id:'mellanmal', label:'Mellanmål', emoji:'🍎'}
@@ -899,15 +922,18 @@ function render(preserveForm){
 
 function mealRowHTML(e){
   if(editingMealId===e.id){
-    return '<div class="edit-row" data-edit-id="'+e.id+'">'
-      + '<div class="pills" style="margin-bottom:0" role="radiogroup" aria-label="Måltidstyp">'
+    const head = '<div class="pills" style="margin-bottom:0" role="radiogroup" aria-label="Måltidstyp">'
       +   MEAL_TYPES.map(function(m){ return '<button class="pill'+(e.type===m.id?' active':'')+'" data-etype="'+m.id+'" role="radio" aria-checked="'+(e.type===m.id)+'">'+mealTypeTag(m)+'</button>'; }).join('')
       + '</div>'
-      + '<input id="edit-desc" type="text" value="'+escapeHTML(e.desc)+'" aria-label="Beskrivning">'
-      + '<div class="grid2">'
-      +   '<div class="field-wrap"><input id="edit-kcal" type="number" inputmode="decimal" value="'+e.kcal+'" aria-label="Kalorier"><span class="field-suffix">kcal</span></div>'
-      +   '<div class="field-wrap"><input id="edit-protein" type="number" inputmode="decimal" value="'+e.protein+'" aria-label="Protein"><span class="field-suffix">g protein</span></div>'
-      + '</div>'
+      + '<input id="edit-desc" type="text" value="'+escapeHTML(e.desc)+'" aria-label="Beskrivning">';
+    const body = (editItems || editParts)
+      ? '<div id="edit-macros-box">'+editBoxHTML()+'</div>'
+      : '<div class="grid2">'
+        +   '<div class="field-wrap"><input id="edit-kcal" type="number" inputmode="decimal" value="'+e.kcal+'" aria-label="Kalorier"><span class="field-suffix">kcal</span></div>'
+        +   '<div class="field-wrap"><input id="edit-protein" type="number" inputmode="decimal" value="'+e.protein+'" aria-label="Protein"><span class="field-suffix">g protein</span></div>'
+        + '</div>';
+    return '<div class="edit-row" data-edit-id="'+e.id+'">'
+      + head + body
       + '<div class="edit-actions">'
       +   '<button class="btn btn-ghost" data-act="edit-cancel">Avbryt</button>'
       +   '<button class="btn btn-primary" data-act="edit-save" data-id="'+e.id+'">Spara</button>'
@@ -919,6 +945,76 @@ function mealRowHTML(e){
     +'<button class="icon-btn'+(fav?' fav-on':'')+'" data-act="fav-meal" data-id="'+e.id+'" aria-label="'+(fav?'Ta bort ur favoriter':'Spara som favorit')+'" title="'+(fav?'Ta bort ur favoriter':'Spara som favorit')+'">'+(fav?starFillSVG:starSVG)+'</button>'
     +'<button class="icon-btn" data-act="edit-meal" data-id="'+e.id+'" aria-label="Redigera måltid">'+pencilSVG+'</button>'
     +'<button class="icon-btn" data-act="del-meal" data-id="'+e.id+'" aria-label="Ta bort måltid">'+trashSVG+'</button></div>';
+}
+
+/* ---------- redigering av ingredienser/delar inne i en måltid ---------- */
+function editBoxHTML(){ return editItems ? editItemsBoxHTML() : editParts ? editPartsBoxHTML() : ''; }
+function editItemsBoxHTML(){
+  const rows = editItems.map(function(it,i){
+    const mm = foodMacros(it, it.amount);
+    return '<div class="builder-row">'
+      + '<span class="builder-name">'+escapeHTML(it.name)+'</span>'
+      + '<input id="ei-amt-'+i+'" class="ei-amt" data-i="'+i+'" type="number" inputmode="decimal" value="'+it.amount+'" aria-label="Mängd '+escapeHTML(it.name)+'">'
+      + '<span class="builder-amt">'+escapeHTML(it.unit)+'</span>'
+      + '<span class="builder-macros" id="ei-macros-'+i+'"><span class="amber">'+mm.kcal+'</span><span class="dot">·</span><span class="green">'+mm.protein+'g</span></span>'
+      + '<button class="icon-btn" data-act="ei-del" data-i="'+i+'" aria-label="Ta bort ingrediens">'+trashSVG+'</button>'
+      + '</div>';
+  }).join('');
+  const sum = itemsSum(editItems);
+  const addOpts = foods.slice().sort(function(a,b){ return a.name.localeCompare(b.name,'sv'); })
+    .map(function(f){ return '<option value="'+f.id+'">'+escapeHTML(f.name)+' ('+f.unit+')</option>'; }).join('');
+  return rows
+    + '<div class="builder-sum"><span>Summa</span><span id="ei-sum"><span class="amber">'+sum.kcal+' kcal</span> · <span class="green">'+sum.protein+' g</span></span></div>'
+    + (foods.length ? '<div class="builder-add" style="margin-top:10px">'
+        + '<div class="grow"><label class="field-label" for="ei-food">Lägg till livsmedel</label><select id="ei-food" class="ai-select">'+addOpts+'</select></div>'
+        + '<div style="width:92px"><label class="field-label" for="ei-add-amt">Mängd</label><input id="ei-add-amt" type="number" inputmode="decimal" placeholder="t.ex. 150"></div>'
+        + '<button class="btn ai-btn" data-act="ei-add" style="width:auto;white-space:nowrap">'+plusSVG+' Rad</button>'
+      + '</div>' : '');
+}
+function editPartsBoxHTML(){
+  const rows = editParts.map(function(p,i){
+    return '<div class="builder-row">'
+      + '<span class="builder-name">'+escapeHTML(p.desc)+'</span>'
+      + '<input id="ep-kcal-'+i+'" class="ep-kcal" data-i="'+i+'" type="number" inputmode="decimal" value="'+p.kcal+'" aria-label="Kalorier '+escapeHTML(p.desc)+'"><span class="builder-amt">kcal</span>'
+      + '<input id="ep-protein-'+i+'" class="ep-protein" data-i="'+i+'" type="number" inputmode="decimal" value="'+p.protein+'" aria-label="Protein '+escapeHTML(p.desc)+'"><span class="builder-amt">g</span>'
+      + '<button class="icon-btn" data-act="ep-del" data-i="'+i+'" aria-label="Ta bort del">'+trashSVG+'</button>'
+      + '</div>';
+  }).join('');
+  const sum = sumParts(editParts);
+  return rows
+    + '<div class="builder-sum"><span>Summa</span><span id="ei-sum"><span class="amber">'+sum.kcal+' kcal</span> · <span class="green">'+sum.protein+' g</span></span></div>';
+}
+function refreshEditSum(){
+  const sEl = document.getElementById('ei-sum'); if(!sEl) return;
+  const sum = editItems ? itemsSum(editItems) : sumParts(editParts);
+  sEl.innerHTML = '<span class="amber">'+sum.kcal+' kcal</span> · <span class="green">'+Math.round(sum.protein)+' g</span>';
+}
+function refreshEditBox(){
+  const box = $('#edit-macros-box'); if(!box) return;
+  box.innerHTML = editBoxHTML(); wireEditBox();
+}
+function wireEditBox(){
+  if(editItems){
+    document.querySelectorAll('.ei-amt').forEach(function(inp){
+      inp.oninput = function(){
+        const i = parseInt(inp.dataset.i,10);
+        editItems[i].amount = parseFloat(inp.value)||0;
+        const mm = foodMacros(editItems[i], editItems[i].amount);
+        const mEl = document.getElementById('ei-macros-'+i);
+        if(mEl) mEl.innerHTML = '<span class="amber">'+mm.kcal+'</span><span class="dot">·</span><span class="green">'+mm.protein+'g</span>';
+        refreshEditSum();
+      };
+    });
+  } else if(editParts){
+    document.querySelectorAll('.ep-kcal, .ep-protein').forEach(function(inp){
+      inp.oninput = function(){
+        const i = parseInt(inp.dataset.i,10);
+        const v = Math.max(0, Math.round(parseFloat(inp.value)||0));
+        if(inp.classList.contains('ep-kcal')) editParts[i].kcal = v; else editParts[i].protein = v;
+        refreshEditSum();
+      };
+    });
+  }
 }
 
 function builderSum(){
@@ -1504,7 +1600,7 @@ function wireToday(){
       const e = srcArr.find(x=>x.id===b.dataset.id);
       if(e){
         const prevProtein = totalsFor(day).protein;
-        meals[day] = (meals[day]||[]).concat({ id: uid(), type: e.type, desc: e.desc, kcal: e.kcal, protein: e.protein, up: Date.now() });
+        meals[day] = (meals[day]||[]).concat(copyMealEntry(e));
         save(LS.meals, meals); maybeCelebrate(prevProtein); render();
         toast('Kopierad: '+e.desc);
       }
@@ -1513,9 +1609,7 @@ function wireToday(){
       const srcArr = meals[b.dataset.src]||[];
       if(srcArr.length){
         const prevProtein = totalsFor(day).protein;
-        meals[day] = (meals[day]||[]).concat(srcArr.map(function(e){
-          return { id: uid(), type: e.type, desc: e.desc, kcal: e.kcal, protein: e.protein, up: Date.now() };
-        }));
+        meals[day] = (meals[day]||[]).concat(srcArr.map(copyMealEntry));
         save(LS.meals, meals); maybeCelebrate(prevProtein); render();
         toast('Kopierade '+srcArr.length+' måltid'+(srcArr.length===1?'':'er')+' från '+prettyDate(b.dataset.src)+'.');
       }
@@ -1523,22 +1617,55 @@ function wireToday(){
     else if(a==='toggle-quick'){ settings.collapseQuick=!settings.collapseQuick; save(LS.settings, settings); render(); }
     else if(a==='toggle-copy'){ settings.collapseCopy=!settings.collapseCopy; save(LS.settings, settings); render(); }
     else if(a==='goto-sync'){ goTab('mal'); const em=$('#sy-email'); if(em) em.focus(); }
-    else if(a==='edit-meal'){ editingMealId=b.dataset.id; render(); const d=$('#edit-desc'); if(d){ d.focus(); d.select(); } }
-    else if(a==='edit-cancel'){ editingMealId=null; render(); }
+    else if(a==='edit-meal'){
+      editingMealId=b.dataset.id;
+      const e0 = (meals[day]||[]).find(x=>x.id===b.dataset.id);
+      editItems = (e0 && Array.isArray(e0.items)) ? e0.items.map(it=>Object.assign({}, it)) : null;
+      editParts = (!editItems && e0 && Array.isArray(e0.parts)) ? e0.parts.map(p=>Object.assign({}, p)) : null;
+      render(); const d=$('#edit-desc'); if(d){ d.focus(); d.select(); }
+    }
+    else if(a==='edit-cancel'){ editingMealId=null; editItems=null; editParts=null; render(); }
+    else if(a==='ei-del'){ editItems.splice(parseInt(b.dataset.i,10),1); refreshEditBox(); }
+    else if(a==='ep-del'){ editParts.splice(parseInt(b.dataset.i,10),1); refreshEditBox(); }
+    else if(a==='ei-add'){
+      const sel=$('#ei-food'), amtEl=$('#ei-add-amt'), amt=parseFloat(amtEl && amtEl.value);
+      if(!(amt>0)){ toast('Ange en mängd större än 0.', true); if(amtEl) amtEl.focus(); return; }
+      const f=foodById(sel && sel.value); if(!f) return;
+      editItems.push({ name:f.name, unit:f.unit, kcal:f.kcal, protein:f.protein, amount:amt });
+      refreshEditBox();
+    }
     else if(a==='edit-save'){
       const prevProtein = totalsFor(day).protein;
       const id=b.dataset.id, arr=meals[day]||[], idx=arr.findIndex(e=>e.id===id);
       if(idx>=0){
+        const cur = arr[idx];
         const d=($('#edit-desc').value||'').trim();
         const tSel = document.querySelector('.pill[data-etype].active');
-        arr[idx]=Object.assign({}, arr[idx], { desc: d||arr[idx].desc,
-          type: tSel ? tSel.dataset.etype : arr[idx].type,
-          kcal: Math.max(0,Math.round(parseFloat($('#edit-kcal').value)||0)),
-          protein: Math.max(0,Math.round(parseFloat($('#edit-protein').value)||0)),
-          up: Date.now() });
+        const type = tSel ? tSel.dataset.etype : cur.type;
+        let patch;
+        if(editItems){
+          if(!editItems.length){ toast('Måltiden måste ha minst en ingrediens.', true); return; }
+          for(let k=0;k<editItems.length;k++){ if(!(parseFloat(editItems[k].amount)>0)){ toast('Ange en mängd större än 0 på alla ingredienser.', true); return; } }
+          const sum = itemsSum(editItems);
+          const oldAuto = autoDescFromItems(cur.items||[]);
+          const newDesc = (!d || d===oldAuto) ? autoDescFromItems(editItems) : d;
+          patch = { items: editItems.map(it=>Object.assign({}, it)), desc:newDesc, type:type, kcal:sum.kcal, protein:sum.protein, up:Date.now() };
+        } else if(editParts){
+          if(!editParts.length){ toast('Måltiden måste ha minst en del.', true); return; }
+          const sum = sumParts(editParts);
+          const oldAuto = autoDescFromParts(cur.parts||[]);
+          const newDesc = (!d || d===oldAuto) ? autoDescFromParts(editParts) : d;
+          patch = { parts: editParts.map(p=>Object.assign({}, p)), desc:newDesc, type:type, kcal:Math.round(sum.kcal), protein:Math.round(sum.protein), up:Date.now() };
+        } else {
+          patch = { desc: d||cur.desc, type:type,
+            kcal: Math.max(0,Math.round(parseFloat($('#edit-kcal').value)||0)),
+            protein: Math.max(0,Math.round(parseFloat($('#edit-protein').value)||0)),
+            up: Date.now() };
+        }
+        arr[idx]=Object.assign({}, cur, patch);
         save(LS.meals, meals);
       }
-      editingMealId=null; maybeCelebrate(prevProtein); render();
+      editingMealId=null; editItems=null; editParts=null; maybeCelebrate(prevProtein); render();
     }
     else if(a==='builder-del'){ builderRows.splice(parseInt(b.dataset.i,10),1); render(); saveDraft(); }
     else if(a==='part-del'){ manualParts.splice(parseInt(b.dataset.i,10),1); render(); saveDraft(); }
@@ -1571,6 +1698,7 @@ function wireToday(){
   if($('#b-amount')) $('#b-amount').onkeydown = function(e){ if(e.key==='Enter') addBuilderRow(); };
   if($('#m-desc')) $('#m-desc').onkeydown = function(e){ if(e.key==='Enter' && addMethod()==='ai' && apiKey && !aiEditing) runEstimate(); };
   ['#m-desc','#m-kcal','#m-protein'].forEach(function(id){ const el=$(id); if(el) el.addEventListener('input', saveDraftDebounced); });
+  if(editingMealId && (editItems || editParts)) wireEditBox();
   if($('#copy-date')) $('#copy-date').onchange = function(){ if(this.value){ copySource = this.value; render(); } };
 
   // svep vänster/höger för att byta dag (mobil)
@@ -1626,10 +1754,12 @@ function addMeal(){
   const prevProtein = totalsFor(day).protein;
   // bygger man från skafferiet skapas en måltid av summan
   if(builderRows.length){
-    const sum = builderSum();
-    const auto = builderRows.map(function(r){ const f=foodById(r.foodId); return f ? (f.name+' '+foodAmountLabel(f,r.amount)) : ''; }).filter(Boolean).join(', ');
+    // frys basen per rad så måltiden går att mängd-justera senare, oberoende av skafferiändringar
+    const items = builderRows.map(function(r){ const f=foodById(r.foodId); return f ? { name:f.name, unit:f.unit, kcal:f.kcal, protein:f.protein, amount:r.amount } : null; }).filter(Boolean);
+    const sum = itemsSum(items);
+    const auto = autoDescFromItems(items);
     const typed = ($('#m-desc') && $('#m-desc').value || '').trim();
-    meals[day] = (meals[day]||[]).concat({ id: uid(), type: mealType, desc: typed||auto, kcal: sum.kcal, protein: sum.protein, up: Date.now() });
+    meals[day] = (meals[day]||[]).concat({ id: uid(), type: mealType, desc: typed||auto, kcal: sum.kcal, protein: sum.protein, items: items, up: Date.now() });
     save(LS.meals, meals);
     builderRows = [];
     clearDraft();
@@ -1643,9 +1773,9 @@ function addMeal(){
   if(manualParts.length){
     const cur = readCurrentPart();
     const parts = cur ? manualParts.concat([cur]) : manualParts.slice();
-    const sum = parts.reduce(function(a,p){ return {kcal:a.kcal+p.kcal, protein:a.protein+p.protein}; }, {kcal:0,protein:0});
+    const sum = sumParts(parts);
     meals[day] = (meals[day]||[]).concat({ id: uid(), type: mealType, up: Date.now(),
-      desc: parts.map(function(p){ return p.desc; }).join(', '), kcal: sum.kcal, protein: sum.protein });
+      desc: autoDescFromParts(parts), kcal: sum.kcal, protein: sum.protein, parts: parts.map(function(p){ return Object.assign({}, p); }) });
     save(LS.meals, meals);
     manualParts = [];
     clearDraft();
@@ -1849,7 +1979,7 @@ function updateBackupReminder(){
 
 /* ---------- start ---------- */
 function goTab(t){
-  tab=t; editingMealId=null; editingFoodId=null; foodFilter=''; copySource=null; render();
+  tab=t; editingMealId=null; editItems=null; editParts=null; editingFoodId=null; foodFilter=''; copySource=null; render();
   const tc = $('#tab-content');
   if(tc){ tc.classList.remove('fade'); void tc.offsetWidth; tc.classList.add('fade'); }
 }
