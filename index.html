@@ -403,7 +403,7 @@ function applyPendingDraftFields(){
 const SUPABASE_URL = 'https://schgcawfirvzlemwdoqf.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNjaGdjYXdmaXJ2emxlbXdkb3FmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgwMDIyMzcsImV4cCI6MjA5MzU3ODIzN30.6HYHPlZF3gXlFoR30qVJjJ6-zVYyKEv8P-MTrNBOjYo';
 const SYNC_TABLE = 'matlogg_state';
-const APP_VERSION = 11; // håll i takt med CACHE_VERSION i sw.js
+const APP_VERSION = 12; // håll i takt med CACHE_VERSION i sw.js
 
 let sb = null;              // supabase-klient
 let syncUser = null;        // inloggad användare (null = utloggad)
@@ -1685,6 +1685,13 @@ function wireToday(){
         const sum = grp.reduce(function(a2,e){ return {kcal:a2.kcal+e.kcal, protein:a2.protein+e.protein}; }, {kcal:0,protein:0});
         grp.forEach(function(e){ markDeleted('meals', e.id); }); // originalen ersätts av den nya raden
         const merged = { id: uid(), type: mt, desc: grp.map(e=>e.desc).join(', '), kcal: sum.kcal, protein: sum.protein, up: Date.now() };
+        // behåll justerbarheten: har alla rader ingredienser slås de ihop, annars blir varje rad en del
+        if(grp.every(function(e){ return Array.isArray(e.items); })){
+          merged.items = [];
+          grp.forEach(function(e){ e.items.forEach(function(it){ merged.items.push(Object.assign({}, it)); }); });
+        } else {
+          merged.parts = grp.map(function(e){ return { desc: e.desc, kcal: e.kcal, protein: e.protein }; });
+        }
         const out=[]; let placed=false;
         arr.forEach(function(e){ if(e.type===mt){ if(!placed){ out.push(merged); placed=true; } } else { out.push(e); } });
         meals[day]=out; save(LS.meals, meals); render();
@@ -1943,7 +1950,10 @@ function mergeData(data){
       if(!inc || !inc.desc) return;
       delete tombstones.favorites[favKey(inc.desc)];
       if(isFavorite(inc.desc)) return;
-      favorites.push({ id: inc.id || uid(), desc: inc.desc, kcal: inc.kcal||0, protein: inc.protein||0, up: Date.now() });
+      const nf = { id: inc.id || uid(), desc: inc.desc, kcal: inc.kcal||0, protein: inc.protein||0, up: Date.now() };
+      if(Array.isArray(inc.items)) nf.items = inc.items.map(function(it){ return Object.assign({}, it); });
+      if(Array.isArray(inc.parts)) nf.parts = inc.parts.map(function(p){ return Object.assign({}, p); });
+      favorites.push(nf);
     });
     save(LS.favorites, favorites);
   }
