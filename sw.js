@@ -1,6 +1,6 @@
 /* Matlogg service worker — gör appen installerbar och offline-kapabel när den serveras över https/localhost.
    Bump CACHE_VERSION vid varje release så gamla filer rensas. */
-const CACHE_VERSION = 'matlogg-v12';
+const CACHE_VERSION = 'matlogg-v13';
 const APP_SHELL = [
   './',
   './index.html',
@@ -26,20 +26,45 @@ self.addEventListener('activate', function(e){
   );
 });
 
+function cachePut(request, res){
+  if(res && res.ok){
+    const copy = res.clone();
+    caches.open(CACHE_VERSION).then(function(c){ c.put(request, copy); });
+  }
+  return res;
+}
+
 self.addEventListener('fetch', function(e){
+  if(e.request.method !== 'GET') return;
   const url = new URL(e.request.url);
   // API-anrop (AI-uppskattning) och externa resurser (typsnitt) går alltid mot nätet.
   if(url.origin !== self.location.origin) return;
-  // App-skalet: cache först, uppdatera i bakgrunden (stale-while-revalidate).
+
+  // Själva sidan: NÄTET FÖRST. Med cache först körde mobilen kvar på förra versionen
+  // ända tills appen startats om en extra gång — buggfixar syntes alltså inte.
+  // Cachen är reserv: svarar inte nätet inom 2,5 s (eller alls) används den.
+  const isPage = e.request.mode === 'navigate' || url.pathname.endsWith('/index.html');
+  if(isPage){
+    e.respondWith(
+      Promise.race([
+        fetch(e.request).then(function(res){ return cachePut(e.request, res); }).catch(function(){ return null; }),
+        new Promise(function(res){ setTimeout(function(){ res(null); }, 2500); })
+      ]).then(function(res){
+        if(res) return res;
+        return caches.match(e.request).then(function(cached){
+          return cached || caches.match('./index.html').then(function(fb){ return fb || fetch(e.request); });
+        });
+      })
+    );
+    return;
+  }
+
+  // Övriga appfiler: cache först, uppdatera i bakgrunden (stale-while-revalidate).
   e.respondWith(
     caches.match(e.request).then(function(cached){
-      const fetched = fetch(e.request).then(function(res){
-        if(res && res.ok){
-          const copy = res.clone();
-          caches.open(CACHE_VERSION).then(function(c){ c.put(e.request, copy); });
-        }
-        return res;
-      }).catch(function(){ return cached || Response.error(); });
+      const fetched = fetch(e.request)
+        .then(function(res){ return cachePut(e.request, res); })
+        .catch(function(){ return cached || Response.error(); });
       return cached || fetched;
     })
   );

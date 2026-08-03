@@ -43,6 +43,28 @@ Eftersom data ligger i `localStorage` (knutet till hur appen öppnas) bör du d�
 kan importeras igen i vilken version som helst och slås ihop med befintliga data. API-nyckeln ingår
 **inte** i exporten. Backup-filerna är `.gitignore`:ade eftersom de innehåller personlig data.
 
+## Tester
+
+Appen behöver varken npm eller byggsteg – men det finns en testsvit som laddar `index.html`
+i en simulerad webbläsare och trycker på appen som en användare gör:
+
+```
+npm install     # en gång, hämtar jsdom
+npm test
+```
+
+Den bevakar mobilflödena där fel är **tysta** – sådant som lägger data på fel datum utan att
+något kraschar, och som är svårt att provocera fram för hand: dygnsbyte medan appen ligger
+fryst i bakgrunden, utkast som räddas när mobilen dödar fliken, skillnaden mellan ett tryck
+och en dragning, och bakgrundssynk som ritar om mitt i en fingertryckning.
+
+> **Den ersätter inte att prova på telefonen.** jsdom räknar ingen CSS, så inget om utseende
+> eller träffytor testas. Pekgesterna är simulerade – att *logiken* svarar rätt betyder inte
+> att iOS Safari skickar exakt de händelserna. Service workern och Supabase-synken är inte
+> med alls.
+
+Kör testerna innan du bumpar `APP_VERSION` / `CACHE_VERSION`.
+
 ## Framtid: köra appen på fler ställen
 
 Idag körs appen lokalt från filen. För att kunna nå den från **flera enheter** (t.ex. mobilen) och
