@@ -1,6 +1,6 @@
 {
   "name": "matlogg",
-  "version": "13.0.0",
+  "version": "14.0.0",
   "private": true,
   "description": "Testsvit för Matlogg. Appen själv är index.html och behöver varken npm eller byggsteg — det här är bara verktyg för att köra testerna.",
   "scripts": {

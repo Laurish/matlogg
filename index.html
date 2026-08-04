@@ -372,8 +372,29 @@ function addMethod(){
    Sparas lokalt i LS.draft — INTE i SYNC_KEYS, alltså aldrig till molnet. */
 let draftTimer = null;
 let pendingDraftFields = null; // fältvärden att fylla i efter första render
+
+/* Metodbyte ritar om hela kortet, och i skafferiläget finns kcal/protein inte ens i DOM:en —
+   därför räcker inte render(true). Vi bär med det som står skrivet över bytet. */
+let carriedFields = null;
+function carryAddFields(){
+  const keep = Object.assign({}, carriedFields || {});
+  [['desc','#m-desc'], ['kcal','#m-kcal'], ['protein','#m-protein']].forEach(function(p){
+    const el = $(p[1]);
+    if(el) keep[p[0]] = el.value; // fält som syns speglar sanningen, även när det tömts
+  });
+  carriedFields = keep;
+}
+function applyCarriedFields(){
+  if(!carriedFields) return;
+  const set = function(id,v){ const el=$(id); if(el && v) el.value=v; };
+  set('#m-desc', carriedFields.desc); set('#m-kcal', carriedFields.kcal); set('#m-protein', carriedFields.protein);
+}
+
 function saveDraft(){
-  const g = function(id){ const el=$(id); return el ? el.value : ''; };
+  // fält som inte finns i det aktuella läget läses från det vi bär med oss
+  const g = function(id){ const el=$(id); if(el) return el.value;
+    const k = id==='#m-desc' ? 'desc' : id==='#m-kcal' ? 'kcal' : 'protein';
+    return (carriedFields && carriedFields[k]) || ''; };
   const desc=g('#m-desc'), kcal=g('#m-kcal'), protein=g('#m-protein');
   if(!(desc || kcal || protein || builderRows.length || manualParts.length)){
     try{ localStorage.removeItem(LS.draft); }catch(e){}
@@ -383,7 +404,7 @@ function saveDraft(){
     mealType:mealType, builderRows:builderRows, manualParts:manualParts, day:day, at:Date.now() })); }catch(e){}
 }
 function saveDraftDebounced(){ clearTimeout(draftTimer); draftTimer=setTimeout(saveDraft, 500); }
-function clearDraft(){ clearTimeout(draftTimer); try{ localStorage.removeItem(LS.draft); }catch(e){} }
+function clearDraft(){ clearTimeout(draftTimer); carriedFields = null; try{ localStorage.removeItem(LS.draft); }catch(e){} }
 const DRAFT_MAX_AGE = 12*3600*1000; // äldre utkast är inte längre "appen dog mitt i" — då är risken större att de hamnar fel
 let draftDayNote = null;            // sätts när utkastet hörde till en annan dag än idag
 function restoreDraft(){
@@ -411,7 +432,7 @@ function applyPendingDraftFields(){
 const SUPABASE_URL = 'https://schgcawfirvzlemwdoqf.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNjaGdjYXdmaXJ2emxlbXdkb3FmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgwMDIyMzcsImV4cCI6MjA5MzU3ODIzN30.6HYHPlZF3gXlFoR30qVJjJ6-zVYyKEv8P-MTrNBOjYo';
 const SYNC_TABLE = 'matlogg_state';
-const APP_VERSION = 13; // håll i takt med CACHE_VERSION i sw.js
+const APP_VERSION = 14; // håll i takt med CACHE_VERSION i sw.js
 
 let sb = null;              // supabase-klient
 let syncUser = null;        // inloggad användare (null = utloggad)
@@ -1666,7 +1687,11 @@ function wireToday(){
       const entry = (meals[day]||[]).find(e=>e.id===b.dataset.id);
       if(entry){ toggleFavorite(entry); render(); }
     }
-    else if(a==='method'){ settings.addMethod = b.dataset.m; save(LS.settings, settings); render(); }
+    else if(a==='method'){
+      carryAddFields(); // det du hunnit skriva ska överleva bytet
+      settings.addMethod = b.dataset.m; save(LS.settings, settings);
+      render(); applyCarriedFields(); saveDraft();
+    }
     else if(a==='copy-src'){ copySource = b.dataset.src; render(); }
     else if(a==='copy-meal'){
       const srcArr = meals[b.dataset.src]||[];

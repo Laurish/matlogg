@@ -225,6 +225,35 @@ console.log('\n6b. Knappen gör det som syns på skärmen');
   win.close();
 }
 
+console.log('\n6c. Metodbyte tappar inte det du redan skrivit');
+{
+  const win = boot({ 'matlogg.settings': { addMethod:'manuell' } });
+  q(win, '#m-desc').value = 'Två ägg och rågbröd';
+  q(win, '#m-kcal').value = '320';
+  q(win, '#m-protein').value = '18';
+
+  click(win, q(win, '[data-act="method"][data-m="ai"]'));
+  check('beskrivningen finns kvar i AI-läget', q(win, '#m-desc').value === 'Två ägg och rågbröd', q(win, '#m-desc').value);
+  check('kcal finns kvar i AI-läget', q(win, '#m-kcal').value === '320', q(win, '#m-kcal').value);
+
+  // skafferiläget saknar kcal/protein helt — värdena måste bäras med tills vi är tillbaka
+  click(win, q(win, '[data-act="method"][data-m="skafferi"]'));
+  check('beskrivningen finns kvar i skafferiläget', q(win, '#m-desc').value === 'Två ägg och rågbröd', q(win, '#m-desc').value);
+  check('kcal-fältet finns inte i skafferiläget', !q(win, '#m-kcal'));
+
+  click(win, q(win, '[data-act="method"][data-m="manuell"]'));
+  check('beskrivningen överlevde hela vändan', q(win, '#m-desc').value === 'Två ägg och rågbröd', q(win, '#m-desc').value);
+  check('kcal kom tillbaka', q(win, '#m-kcal').value === '320', q(win, '#m-kcal').value);
+  check('protein kom tillbaka', q(win, '#m-protein').value === '18', q(win, '#m-protein').value);
+
+  // efter en sparad måltid ska inget gammalt dyka upp igen vid nästa byte
+  click(win, q(win, '#m-add'));
+  click(win, q(win, '[data-act="method"][data-m="ai"]'));
+  check('fälten är tomma efter att måltiden sparats', q(win, '#m-desc').value === '' && q(win, '#m-kcal').value === '',
+    q(win, '#m-desc').value+' / '+q(win, '#m-kcal').value);
+  win.close();
+}
+
 /* ---------------------------------------------------------------- */
 console.log('\n7. Utkast minns vilken dag det hörde till');
 {
