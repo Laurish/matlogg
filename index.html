@@ -7,12 +7,17 @@
 <link rel="manifest" href="manifest.json" />
 <meta name="theme-color" content="#2E7D5B" />
 <link rel="icon" href="icon.svg" type="image/svg+xml" />
-<link rel="apple-touch-icon" href="icon.svg" />
+<link rel="apple-touch-icon" href="icon-180.png" />
+<meta name="mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-title" content="Matlogg" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&display=swap" />
+<script>/* sätt temat före första målningen — annars blinkar mörkt läge ljust vid varje start */
+(function(){ try{ var s=JSON.parse(localStorage.getItem('matlogg.settings')||'{}'); var m=s.theme||'auto';
+  var dark = m==='dark' || (m==='auto' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  document.documentElement.setAttribute('data-theme', dark?'dark':'light'); }catch(e){} })();</script>
 <style>
   :root{
     --bg:#F6F7F4; --card:#FFFFFF; --border:#E6E8E1; --ink:#1F2421; --muted:#6B7268;
@@ -30,11 +35,15 @@
       --error:#E07A6E; --tip-bg:#E9ECE6; --tip-fg:#1F2421;
   }
   *{box-sizing:border-box}
+  html{-webkit-tap-highlight-color:transparent; -webkit-text-size-adjust:100%;}
   body{
     margin:0; background:var(--bg); color:var(--ink);
     font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
     -webkit-font-smoothing:antialiased;
   }
+  /* knappar: ingen 300 ms-fördröjning/dubbeltrycks-zoom, ingen textmarkering vid långtryck */
+  button, .chip, .pill, .tab{touch-action:manipulation; -webkit-user-select:none; user-select:none; -webkit-touch-callout:none;}
+  input, select, textarea{touch-action:manipulation;}
   .wrap{max-width:600px; margin:0 auto; padding:24px 16px 64px;}
   .topbar{display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;}
   .title{font-family:var(--display); font-size:22px; font-weight:700; letter-spacing:-0.01em;}
@@ -68,7 +77,8 @@
   .small{font-size:12px; color:var(--muted); margin-top:4px;}
   .muted{color:var(--muted);} .amber{color:var(--amber);} .green{color:var(--green);} .blue{color:var(--blue);}
   .datenav{display:flex; align-items:center; justify-content:space-between; margin-bottom:16px;}
-  .datelabel{font-size:14px; font-weight:600; text-align:center; text-transform:capitalize;}
+  .datelabel{font-size:14px; font-weight:600; text-align:center;}
+  .datelabel::first-letter{text-transform:uppercase;} /* "Mån 6 september" — inte "Mån 6 September" */
   .linkbtn{background:none; border:0; color:var(--muted); font-size:12px; text-decoration:underline; cursor:pointer; padding:0;}
   .navbtn{background:none; border:0; color:var(--muted); cursor:pointer; padding:6px; line-height:0; border-radius:8px;}
   .navbtn:disabled{color:var(--disabled); cursor:default;}
@@ -200,19 +210,35 @@
 
   /* ---------- mobil: bottennav, safe areas, touchytor ---------- */
   .wrap{padding-left:max(16px, env(safe-area-inset-left)); padding-right:max(16px, env(safe-area-inset-right));}
+  .tab .tab-ico{display:none; line-height:0;}
   @media (max-width: 560px){
-    .wrap{padding-bottom:calc(84px + env(safe-area-inset-bottom));}
+    .wrap{padding-bottom:calc(92px + env(safe-area-inset-bottom));}
     .tabs{
       position:fixed; left:0; right:0; bottom:0; z-index:100; margin-bottom:0;
       border-radius:0; border:0; border-top:1px solid var(--border);
-      background:var(--card); padding:6px 8px calc(6px + env(safe-area-inset-bottom));
+      background:var(--card); padding:6px 6px calc(6px + env(safe-area-inset-bottom));
       box-shadow:0 -2px 12px rgba(0,0,0,.05);
     }
-    .tab{flex-direction:column; gap:2px; font-size:11.5px; padding:7px 2px; border-radius:10px;}
-    .tab.active{background:var(--surface3); box-shadow:none;}
+    .tab{flex-direction:column; gap:3px; font-size:11px; padding:6px 2px 5px; border-radius:12px; min-height:52px;}
+    .tab .tab-ico{display:block;}
+    .tab .tab-ico svg{width:22px; height:22px;}
+    .tab.active{background:var(--green-soft); color:var(--green); font-weight:600; box-shadow:none;}
+    .tab:active{transform:none; opacity:.7;}
+    /* iOS zoomar in sidan när ett fält med mindre än 16 px text får fokus — och zoomar inte tillbaka */
+    input, select, .ai-select, input.goal, .copy-src input[type=date],
+    .builder-row .ei-amt, .builder-row .ep-kcal, .builder-row .ep-protein{font-size:16px;}
     .icon-btn{padding:10px; margin:-4px;}
     .navbtn{padding:10px;}
     .topbar{margin-bottom:16px;}
+    .row{gap:8px; padding:12px 12px 12px 16px;}
+    .hist-date{width:104px; font-size:13px;}
+    /* notiser ska ligga ovanför bottennaven, inte täcka den */
+    .toast{bottom:calc(80px + env(safe-area-inset-bottom)); max-width:calc(100vw - 32px); text-align:center;}
+  }
+  @media (max-width: 400px){
+    .hero-pad{padding:16px;}
+    .chip-desc{max-width:150px;}
+    .pill{padding:6px 10px; font-size:13px;}
   }
 </style>
 </head>
@@ -225,11 +251,11 @@
       </div>
     </div>
     <div class="tabs" role="tablist" aria-label="Vyer">
-      <button class="tab" id="tab-idag" role="tab" aria-selected="true">Idag</button>
-      <button class="tab" id="tab-kropp" role="tab" aria-selected="false">Kropp</button>
-      <button class="tab" id="tab-trender" role="tab" aria-selected="false">Trender</button>
-      <button class="tab" id="tab-mal" role="tab" aria-selected="false">Mål</button>
-      <button class="tab" id="tab-skafferi" role="tab" aria-selected="false">Skafferi</button>
+      <button class="tab" id="tab-idag" role="tab" aria-selected="true"><span class="tab-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="17" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><circle cx="12" cy="15.5" r="1.4" fill="currentColor" stroke="none"/></svg></span><span>Idag</span></button>
+      <button class="tab" id="tab-kropp" role="tab" aria-selected="false"><span class="tab-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5.5" r="3"/><path d="M5.5 21v-5.5a6.5 6.5 0 0 1 13 0V21"/></svg></span><span>Kropp</span></button>
+      <button class="tab" id="tab-trender" role="tab" aria-selected="false"><span class="tab-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 17 9 11 13 15 21 7"/><polyline points="15 7 21 7 21 13"/></svg></span><span>Trender</span></button>
+      <button class="tab" id="tab-mal" role="tab" aria-selected="false"><span class="tab-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none"/></svg></span><span>Mål</span></button>
+      <button class="tab" id="tab-skafferi" role="tab" aria-selected="false"><span class="tab-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg></span><span>Skafferi</span></button>
     </div>
     <div id="tab-content" class="stack"></div>
     <div class="backup-bar">
@@ -304,6 +330,10 @@ function uid(){ return Date.now()+'-'+Math.random().toString(36).slice(2,8); }
 let meals = load(LS.meals, {});
 let body  = load(LS.body, []);
 let settings = load(LS.settings, { kcalGoal:'', proteinGoal:'', targetWeight:'', targetWaist:'', celebrateProtein:true, celebrateSound:true, theme:'auto' });
+/* inställningar som hör till ENHETEN, inte kontot: tema, inmatningsmetod och ihopfällda kort.
+   Ligger kvar i settings (bakåtkompatibelt) men skrivs aldrig över av molnet — annars fick
+   telefonen "AI"-läge från datorn fast AI-nyckeln bara finns där. */
+const DEVICE_PREFS = ['theme', 'addMethod', 'collapseQuick', 'collapseCopy'];
 
 /* ---------- tema (auto/ljust/mörkt) ---------- */
 const darkMQ = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
@@ -417,7 +447,11 @@ function restoreDraft(){
   if(d.mealType) mealType = d.mealType;
   if(Array.isArray(d.builderRows)) builderRows = d.builderRows;
   if(Array.isArray(d.manualParts)) manualParts = d.manualParts;
-  if(d.desc || d.kcal || d.protein) pendingDraftFields = { desc:d.desc||'', kcal:d.kcal||'', protein:d.protein||'' };
+  if(d.desc || d.kcal || d.protein){
+    pendingDraftFields = { desc:d.desc||'', kcal:d.kcal||'', protein:d.protein||'' };
+    // skafferiläget saknar kcal/protein-fälten — bär med värdena så de dyker upp vid metodbyte
+    carriedFields = Object.assign({}, pendingDraftFields);
+  }
 }
 function applyPendingDraftFields(){
   if(!pendingDraftFields) return;
@@ -432,7 +466,7 @@ function applyPendingDraftFields(){
 const SUPABASE_URL = 'https://schgcawfirvzlemwdoqf.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNjaGdjYXdmaXJ2emxlbXdkb3FmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgwMDIyMzcsImV4cCI6MjA5MzU3ODIzN30.6HYHPlZF3gXlFoR30qVJjJ6-zVYyKEv8P-MTrNBOjYo';
 const SYNC_TABLE = 'matlogg_state';
-const APP_VERSION = 14; // håll i takt med CACHE_VERSION i sw.js
+const APP_VERSION = 15; // håll i takt med CACHE_VERSION i sw.js
 
 let sb = null;              // supabase-klient
 let syncUser = null;        // inloggad användare (null = utloggad)
@@ -541,7 +575,8 @@ function mergeSynced(inc){
   favorites = favorites.filter(function(f){ return tombOf('favorites', favKey(f.desc)) <= (f.up||0); });
   // 6) inställningar + AI-modell: nyaste settings-versionen vinner i sin helhet
   if(inc.settings && typeof inc.settings==='object' && (inc.settings.up||0) > (settings.up||0)){
-    settings = Object.assign({}, settings, inc.settings);
+    const local = {}; DEVICE_PREFS.forEach(function(k){ if(k in settings) local[k] = settings[k]; });
+    settings = Object.assign({}, settings, inc.settings, local);
     if(inc.aimodel) aiModel = inc.aimodel;
     applyTheme();
   }
@@ -621,12 +656,13 @@ function fullSync(manual){
     .then(function(changed){ if(changed) backgroundRender(); return pushState(0); })
     .then(function(){ if(manual) toast('Synkat med molnet.'); })
     .catch(function(err){
-      const m = (err && err.message) || 'okänt fel';
-      syncStatusMsg('Synkfel: '+m+' — försöker igen automatiskt.', true);
+      const offline = navigator.onLine===false;
+      const m = offline ? 'ingen nätverksanslutning' : ((err && err.message) || 'okänt fel');
+      syncStatusMsg(offline ? 'Offline — synkar automatiskt när nätet är tillbaka.' : 'Synkfel: '+m+' — försöker igen automatiskt.', true);
       if(manual) toast('Kunde inte synka: '+m, true);
-      // självläkning: försök igen om 30 s istället för att bli tyst stående
+      // självläkning: försök igen istället för att bli tyst stående (online-händelsen kan trigga tidigare)
       clearTimeout(syncTimer);
-      syncTimer = setTimeout(function(){ fullSync(false); }, 30000);
+      syncTimer = setTimeout(function(){ fullSync(false); }, offline ? 60000 : 30000);
     })
     .then(function(){ syncBusy = false; if(tab==='mal') render(true); });
 }
@@ -693,7 +729,7 @@ function fireCelebration(){
     el.addEventListener('click', function(){ el.classList.remove('show'); });
     document.body.appendChild(el);
   }
-  const pg = parseFloat(settings.proteinGoal)||0;
+  const pg = parseNum(settings.proteinGoal)||0;
   el.innerHTML = '<div class="celebrate-card"><div class="celebrate-emoji">🎉</div>'
     + '<div class="celebrate-title">Proteinmålet nått!</div>'
     + '<div class="celebrate-sub">'+totalsFor(day).protein+' g av '+pg+' g i dag</div></div>';
@@ -706,7 +742,7 @@ function fireCelebration(){
 function maybeCelebrate(prevProtein){
   if(day!==todayStr()) return;
   if(settings.celebrateProtein===false) return;
-  const pg = parseFloat(settings.proteinGoal)||0; if(pg<=0) return;
+  const pg = parseNum(settings.proteinGoal)||0; if(pg<=0) return;
   const now = totalsFor(day).protein;
   if(prevProtein < pg && now >= pg) fireCelebration();
 }
@@ -714,11 +750,11 @@ function maybeCelebrate(prevProtein){
 /* ---------- livsmedelshjälpare ---------- */
 function foodById(id){ return foods.find(f=>f.id===id) || null; }
 function foodMacros(food, amount){
-  const a = parseFloat(amount)||0;
+  const a = parseNum(amount)||0;
   const factor = food.unit==='st' ? a : a/100;
   return { kcal: Math.round(food.kcal*factor), protein: Math.round(food.protein*factor) };
 }
-function foodAmountLabel(food, amount){ const a = parseFloat(amount)||0; return round1(a)+' '+food.unit; }
+function foodAmountLabel(food, amount){ const a = parseNum(amount)||0; return round1(a)+' '+food.unit; }
 
 /* ---------- ingredienser (items) & delar (parts) i en måltid ----------
    item = {name, unit, kcal, protein, amount} där kcal/protein är BASEN (per 100 g/ml, el. per st) —
@@ -728,7 +764,7 @@ function itemsSum(items){
   return (items||[]).reduce(function(a,it){ const m=foodMacros(it, it.amount); return {kcal:a.kcal+m.kcal, protein:a.protein+m.protein}; }, {kcal:0,protein:0});
 }
 function sumParts(parts){ // OBS: befintlig partsSum(extra) jobbar mot manualParts — detta är den generiska
-  return (parts||[]).reduce(function(a,p){ return {kcal:a.kcal+(parseFloat(p.kcal)||0), protein:a.protein+(parseFloat(p.protein)||0)}; }, {kcal:0,protein:0});
+  return (parts||[]).reduce(function(a,p){ return {kcal:a.kcal+(parseNum(p.kcal)||0), protein:a.protein+(parseNum(p.protein)||0)}; }, {kcal:0,protein:0});
 }
 function autoDescFromItems(items){ return (items||[]).map(function(it){ return it.name+' '+foodAmountLabel(it, it.amount); }).join(', '); }
 function autoDescFromParts(parts){ return (parts||[]).map(function(p){ return p.desc; }).join(', '); }
@@ -748,6 +784,14 @@ function mealTypeTag(m){ return m.emoji+' '+m.label; }
 
 /* ---------- hjälpare ---------- */
 function $(s){ return document.querySelector(s); }
+/* tal från fält: svenska tangentbord skriver komma, och type=number kastade då hela värdet.
+   Fälten är text med inputmode=decimal — därför tolkas "1,5" och "1.5" likadant här. */
+function parseNum(v){
+  if(typeof v==='number') return v;
+  if(v==null) return NaN;
+  const s = String(v).trim().replace(/\s+/g,'').replace(',', '.');
+  return s==='' ? NaN : parseFloat(s);
+}
 function escapeHTML(s){ return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function round1(v){ return Math.round(v*10)/10; }
 function dateStr(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
@@ -876,7 +920,13 @@ async function estimateMacros(description, key){
   }
   const data = await response.json();
   const text = (data.content||[]).map(i=>i.type==='text'?i.text:'').join('').replace(/```json|```/g,'').trim();
-  const parsed = JSON.parse(text);
+  let parsed;
+  try{ parsed = JSON.parse(text); }
+  catch(e){ // modellen la till en förklaring runt JSON:en — plocka ut objektet
+    const m = text.match(/\{[\s\S]*\}/);
+    if(!m) throw new Error('oväntat svar från AI:n');
+    parsed = JSON.parse(m[0]);
+  }
   return { kcal: Math.max(0,Math.round(Number(parsed.kcal)||0)), protein: Math.max(0,Math.round(Number(parsed.protein)||0)) };
 }
 
@@ -1021,8 +1071,8 @@ function mealRowHTML(e){
     const body = (editItems || editParts)
       ? '<div id="edit-macros-box">'+editBoxHTML()+'</div>'
       : '<div class="grid2">'
-        +   '<div class="field-wrap"><input id="edit-kcal" type="number" inputmode="decimal" value="'+e.kcal+'" aria-label="Kalorier"><span class="field-suffix">kcal</span></div>'
-        +   '<div class="field-wrap"><input id="edit-protein" type="number" inputmode="decimal" value="'+e.protein+'" aria-label="Protein"><span class="field-suffix">g protein</span></div>'
+        +   '<div class="field-wrap"><input id="edit-kcal" type="text" inputmode="decimal" value="'+e.kcal+'" aria-label="Kalorier"><span class="field-suffix">kcal</span></div>'
+        +   '<div class="field-wrap"><input id="edit-protein" type="text" inputmode="decimal" value="'+e.protein+'" aria-label="Protein"><span class="field-suffix">g protein</span></div>'
         + '</div>';
     return '<div class="edit-row" data-edit-id="'+e.id+'">'
       + head + body
@@ -1046,7 +1096,7 @@ function editItemsBoxHTML(){
     const mm = foodMacros(it, it.amount);
     return '<div class="builder-row">'
       + '<span class="builder-name">'+escapeHTML(it.name)+'</span>'
-      + '<input id="ei-amt-'+i+'" class="ei-amt" data-i="'+i+'" type="number" inputmode="decimal" value="'+it.amount+'" aria-label="Mängd '+escapeHTML(it.name)+'">'
+      + '<input id="ei-amt-'+i+'" class="ei-amt" data-i="'+i+'" type="text" inputmode="decimal" value="'+it.amount+'" aria-label="Mängd '+escapeHTML(it.name)+'">'
       + '<span class="builder-amt">'+escapeHTML(it.unit)+'</span>'
       + '<span class="builder-macros" id="ei-macros-'+i+'"><span class="amber">'+mm.kcal+'</span><span class="dot">·</span><span class="green">'+mm.protein+'g</span></span>'
       + '<button class="icon-btn" data-act="ei-del" data-i="'+i+'" aria-label="Ta bort ingrediens">'+trashSVG+'</button>'
@@ -1059,7 +1109,7 @@ function editItemsBoxHTML(){
     + '<div class="builder-sum"><span>Summa</span><span id="ei-sum"><span class="amber">'+sum.kcal+' kcal</span> · <span class="green">'+sum.protein+' g</span></span></div>'
     + (foods.length ? '<div class="builder-add" style="margin-top:10px">'
         + '<div class="grow"><label class="field-label" for="ei-food">Lägg till livsmedel</label><select id="ei-food" class="ai-select">'+addOpts+'</select></div>'
-        + '<div style="width:92px"><label class="field-label" for="ei-add-amt">Mängd</label><input id="ei-add-amt" type="number" inputmode="decimal" placeholder="t.ex. 150"></div>'
+        + '<div style="width:92px"><label class="field-label" for="ei-add-amt">Mängd</label><input id="ei-add-amt" type="text" inputmode="decimal" placeholder="t.ex. 150"></div>'
         + '<button class="btn ai-btn" data-act="ei-add" style="width:auto;white-space:nowrap">'+plusSVG+' Rad</button>'
       + '</div>' : '');
 }
@@ -1067,8 +1117,8 @@ function editPartsBoxHTML(){
   const rows = editParts.map(function(p,i){
     return '<div class="builder-row">'
       + '<span class="builder-name">'+escapeHTML(p.desc)+'</span>'
-      + '<input id="ep-kcal-'+i+'" class="ep-kcal" data-i="'+i+'" type="number" inputmode="decimal" value="'+p.kcal+'" aria-label="Kalorier '+escapeHTML(p.desc)+'"><span class="builder-amt">kcal</span>'
-      + '<input id="ep-protein-'+i+'" class="ep-protein" data-i="'+i+'" type="number" inputmode="decimal" value="'+p.protein+'" aria-label="Protein '+escapeHTML(p.desc)+'"><span class="builder-amt">g</span>'
+      + '<input id="ep-kcal-'+i+'" class="ep-kcal" data-i="'+i+'" type="text" inputmode="decimal" value="'+p.kcal+'" aria-label="Kalorier '+escapeHTML(p.desc)+'"><span class="builder-amt">kcal</span>'
+      + '<input id="ep-protein-'+i+'" class="ep-protein" data-i="'+i+'" type="text" inputmode="decimal" value="'+p.protein+'" aria-label="Protein '+escapeHTML(p.desc)+'"><span class="builder-amt">g</span>'
       + '<button class="icon-btn" data-act="ep-del" data-i="'+i+'" aria-label="Ta bort del">'+trashSVG+'</button>'
       + '</div>';
   }).join('');
@@ -1090,7 +1140,7 @@ function wireEditBox(){
     document.querySelectorAll('.ei-amt').forEach(function(inp){
       inp.oninput = function(){
         const i = parseInt(inp.dataset.i,10);
-        editItems[i].amount = parseFloat(inp.value)||0;
+        editItems[i].amount = parseNum(inp.value)||0;
         const mm = foodMacros(editItems[i], editItems[i].amount);
         const mEl = document.getElementById('ei-macros-'+i);
         if(mEl) mEl.innerHTML = '<span class="amber">'+mm.kcal+'</span><span class="dot">·</span><span class="green">'+mm.protein+'g</span>';
@@ -1101,7 +1151,7 @@ function wireEditBox(){
     document.querySelectorAll('.ep-kcal, .ep-protein').forEach(function(inp){
       inp.oninput = function(){
         const i = parseInt(inp.dataset.i,10);
-        const v = Math.max(0, Math.round(parseFloat(inp.value)||0));
+        const v = Math.max(0, Math.round(parseNum(inp.value)||0));
         if(inp.classList.contains('ep-kcal')) editParts[i].kcal = v; else editParts[i].protein = v;
         refreshEditSum();
       };
@@ -1137,7 +1187,7 @@ function builderHTML(){
     + (rows ? '<div style="margin-top:10px">'+rows+'</div>'+sumHTML : '')
     + '<div class="builder-add" style="margin-top:10px">'
     +   '<div class="grow"><label class="field-label" for="b-food">Livsmedel</label><select id="b-food" class="ai-select">'+opts+'</select></div>'
-    +   '<div style="width:92px"><label class="field-label" for="b-amount">Mängd</label><input id="b-amount" type="number" inputmode="decimal" placeholder="t.ex. 150"></div>'
+    +   '<div style="width:92px"><label class="field-label" for="b-amount">Mängd</label><input id="b-amount" type="text" inputmode="decimal" placeholder="t.ex. 150"></div>'
     +   '<button class="btn ai-btn" id="b-add-row" style="width:auto;white-space:nowrap">'+plusSVG+' Rad</button>'
     + '</div>'
     + (builderRows.length ? '<div class="hint" style="margin-top:8px">Tryck <strong>Lägg till måltid</strong> nedan för att spara summan som en måltid.</div>' : '')
@@ -1209,7 +1259,7 @@ function partsBoxHTML(){
 
 function todayHTML(){
   const t = totalsFor(day);
-  const kg = parseFloat(settings.kcalGoal)||0, pg = parseFloat(settings.proteinGoal)||0;
+  const kg = parseNum(settings.kcalGoal)||0, pg = parseNum(settings.proteinGoal)||0;
   const isToday = day===todayStr();
 
   function ringSVG(value, goal, colorVar, softVar, unit){
@@ -1331,8 +1381,8 @@ function todayHTML(){
   +   (method==='skafferi' ? builderHTML() : '')
   +   (method!=='skafferi'
       ? '<div class="grid2" style="margin-top:12px">'
-        + '<div class="field-wrap"><input id="m-kcal" type="number" inputmode="decimal" placeholder="0"><span class="field-suffix">kcal</span></div>'
-        + '<div class="field-wrap"><input id="m-protein" type="number" inputmode="decimal" placeholder="0"><span class="field-suffix">g protein</span></div>'
+        + '<div class="field-wrap"><input id="m-kcal" type="text" inputmode="decimal" placeholder="0"><span class="field-suffix">kcal</span></div>'
+        + '<div class="field-wrap"><input id="m-protein" type="text" inputmode="decimal" placeholder="0"><span class="field-suffix">g protein</span></div>'
         + '</div>'
         + partsBoxHTML()
         + '<div style="display:flex;gap:8px;margin-top:12px">'
@@ -1364,8 +1414,8 @@ function bodyHTML(){
       +'<div class="stat-big" style="font-size:30px;color:'+color+'">'+(val!=null?val:'–')+(val!=null?'<span class="unit">'+unit+'</span>':'')+'</div>'+deltaHTML+'</div>';
   }
 
-  const wChart = wData.length ? '<div class="card chart-pad"><div class="chart-title">Vikt (kg)</div>'+lineChartSVG(wData,'weight','var(--blue)',wData.length>=5,parseFloat(settings.targetWeight)||0)+'</div>' : '';
-  const waChart = waData.length ? '<div class="card chart-pad"><div class="chart-title">Mage (cm)</div>'+lineChartSVG(waData,'waist','var(--green)',false,parseFloat(settings.targetWaist)||0)+'</div>' : '';
+  const wChart = wData.length ? '<div class="card chart-pad"><div class="chart-title">Vikt (kg)</div>'+lineChartSVG(wData,'weight','var(--blue)',wData.length>=5,parseNum(settings.targetWeight)||0)+'</div>' : '';
+  const waChart = waData.length ? '<div class="card chart-pad"><div class="chart-title">Mage (cm)</div>'+lineChartSVG(waData,'waist','var(--green)',false,parseNum(settings.targetWaist)||0)+'</div>' : '';
 
   const hist = sorted.length ? '<div class="card"><div class="group-head">Historik</div>'
     + [...sorted].reverse().map(b=>{
@@ -1386,8 +1436,8 @@ function bodyHTML(){
   +   '<div class="chart-title">Registrera mätning</div>'
   +   '<input id="b-date" type="date" value="'+day+'" max="'+todayStr()+'" style="margin-bottom:8px">'
   +   '<div class="grid2">'
-  +     '<div class="field-wrap"><input id="b-weight" type="number" inputmode="decimal" placeholder="vikt"><span class="field-suffix">kg</span></div>'
-  +     '<div class="field-wrap"><input id="b-waist" type="number" inputmode="decimal" placeholder="mage"><span class="field-suffix">cm</span></div>'
+  +     '<div class="field-wrap"><input id="b-weight" type="text" inputmode="decimal" placeholder="vikt"><span class="field-suffix">kg</span></div>'
+  +     '<div class="field-wrap"><input id="b-waist" type="text" inputmode="decimal" placeholder="mage"><span class="field-suffix">cm</span></div>'
   +   '</div>'
   +   '<button class="btn btn-primary" id="b-add" style="margin-top:12px">'+plusSVG+' Spara</button>'
   + '</div>'
@@ -1396,7 +1446,7 @@ function bodyHTML(){
 
 function weekOverviewSVG(){
   const W=320,H=88, pl=8,pr=8,pt=10,pb=18, iw=W-pl-pr, ih=H-pt-pb;
-  const kg = parseFloat(settings.kcalGoal)||0;
+  const kg = parseNum(settings.kcalGoal)||0;
   const dow = (new Date().getDay()+6)%7; // 0 = måndag
   const monday = shiftDay(todayStr(), -dow);
   const days=[]; for(let i=0;i<7;i++){
@@ -1432,7 +1482,7 @@ function trendsHTML(){
   const waData = inRange.filter(b=>typeof b.waist==='number').map(b=>({label:shortLabel(b.date),waist:b.waist}));
   const wChange = wData.length>=2 ? round1(wData[wData.length-1].weight - wData[0].weight) : null;
   const waChange = waData.length>=2 ? round1(waData[waData.length-1].waist - waData[0].waist) : null;
-  const kGoal = parseFloat(settings.kcalGoal)||0, pGoal = parseFloat(settings.proteinGoal)||0;
+  const kGoal = parseNum(settings.kcalGoal)||0, pGoal = parseNum(settings.proteinGoal)||0;
   const weekly = trendRange>=90, barData = weekly ? weeklyAgg(series) : series;
 
   const ranges=[{d:7,l:'7 dagar'},{d:30,l:'30 dagar'},{d:90,l:'3 mån'}];
@@ -1454,8 +1504,8 @@ function trendsHTML(){
   const suffix = weekly ? ' · veckosnitt' : ' · per dag';
   const kcalChart = loggedDays.length ? '<div class="card chart-pad"><div class="chart-title">Energi'+suffix+'</div>'+barChartSVG(barData,'kcal','var(--amber)',kGoal,'kcal')+'</div>' : '';
   const protChart = loggedDays.length ? '<div class="card chart-pad"><div class="chart-title">Protein'+suffix+'</div>'+barChartSVG(barData,'protein','var(--green)',pGoal,'g')+'</div>' : '';
-  const weightChart = wData.length ? '<div class="card chart-pad"><div class="chart-title">Vikt (kg)</div>'+lineChartSVG(wData,'weight','var(--blue)',wData.length>=5,parseFloat(settings.targetWeight)||0)+'</div>' : '';
-  const waistChart = waData.length ? '<div class="card chart-pad"><div class="chart-title">Mage (cm)</div>'+lineChartSVG(waData,'waist','var(--green)',false,parseFloat(settings.targetWaist)||0)+'</div>' : '';
+  const weightChart = wData.length ? '<div class="card chart-pad"><div class="chart-title">Vikt (kg)</div>'+lineChartSVG(wData,'weight','var(--blue)',wData.length>=5,parseNum(settings.targetWeight)||0)+'</div>' : '';
+  const waistChart = waData.length ? '<div class="card chart-pad"><div class="chart-title">Mage (cm)</div>'+lineChartSVG(waData,'waist','var(--green)',false,parseNum(settings.targetWaist)||0)+'</div>' : '';
 
   const anyData = loggedDays.length>0 || wData.length>0 || waData.length>0;
   const emptyState = anyData ? '' : '<div class="card empty">Logga måltider och mätningar några dagar så dyker trenderna upp här.</div>';
@@ -1471,7 +1521,7 @@ function trendsHTML(){
 function malHTML(){
   const latestW = (function(){ const a=body.filter(b=>typeof b.weight==='number').sort((x,y)=>x.date.localeCompare(y.date)); return a.length?a[a.length-1].weight:null; })();
   const latestWa = (function(){ const a=body.filter(b=>typeof b.waist==='number').sort((x,y)=>x.date.localeCompare(y.date)); return a.length?a[a.length-1].waist:null; })();
-  const tW = parseFloat(settings.targetWeight)||0, tWa = parseFloat(settings.targetWaist)||0;
+  const tW = parseNum(settings.targetWeight)||0, tWa = parseNum(settings.targetWaist)||0;
   function remain(latest, target, unit){
     if(!target || latest==null) return '';
     const diff = round1(latest - target);
@@ -1483,16 +1533,16 @@ function malHTML(){
   +   '<div class="chart-title">Dagliga mål</div>'
   +   '<div class="hint" style="margin-bottom:10px">Styr stapellinjen i Trender och ringarna på Idag-sidan.</div>'
   +   '<div class="grid2">'
-  +     '<div><div class="small" style="margin-top:0;margin-bottom:4px">Energi per dag</div><div class="field-wrap"><input id="g-kcal" type="number" inputmode="numeric" placeholder="t.ex. 2100" value="'+escapeHTML(settings.kcalGoal)+'"><span class="field-suffix">kcal</span></div></div>'
-  +     '<div><div class="small" style="margin-top:0;margin-bottom:4px">Protein per dag</div><div class="field-wrap"><input id="g-protein" type="number" inputmode="numeric" placeholder="t.ex. 150" value="'+escapeHTML(settings.proteinGoal)+'"><span class="field-suffix">g</span></div></div>'
+  +     '<div><div class="small" style="margin-top:0;margin-bottom:4px">Energi per dag</div><div class="field-wrap"><input id="g-kcal" type="text" inputmode="numeric" placeholder="t.ex. 2100" value="'+escapeHTML(settings.kcalGoal)+'"><span class="field-suffix">kcal</span></div></div>'
+  +     '<div><div class="small" style="margin-top:0;margin-bottom:4px">Protein per dag</div><div class="field-wrap"><input id="g-protein" type="text" inputmode="numeric" placeholder="t.ex. 150" value="'+escapeHTML(settings.proteinGoal)+'"><span class="field-suffix">g</span></div></div>'
   +   '</div>'
   + '</div>'
   + '<div class="card hero-pad">'
   +   '<div class="chart-title">Kroppsmål</div>'
   +   '<div class="hint" style="margin-bottom:10px">Visas som en streckad mållinje i vikt- och måttgraferna.</div>'
   +   '<div class="grid2">'
-  +     '<div><div class="small" style="margin-top:0;margin-bottom:4px">Målvikt</div><div class="field-wrap"><input id="g-weight" type="number" inputmode="decimal" placeholder="t.ex. 69" value="'+escapeHTML(settings.targetWeight)+'"><span class="field-suffix">kg</span></div>'+remain(latestW,tW,'kg')+'</div>'
-  +     '<div><div class="small" style="margin-top:0;margin-bottom:4px">Målmått mage</div><div class="field-wrap"><input id="g-waist" type="number" inputmode="decimal" placeholder="t.ex. 85" value="'+escapeHTML(settings.targetWaist)+'"><span class="field-suffix">cm</span></div>'+remain(latestWa,tWa,'cm')+'</div>'
+  +     '<div><div class="small" style="margin-top:0;margin-bottom:4px">Målvikt</div><div class="field-wrap"><input id="g-weight" type="text" inputmode="decimal" placeholder="t.ex. 69" value="'+escapeHTML(settings.targetWeight)+'"><span class="field-suffix">kg</span></div>'+remain(latestW,tW,'kg')+'</div>'
+  +     '<div><div class="small" style="margin-top:0;margin-bottom:4px">Målmått mage</div><div class="field-wrap"><input id="g-waist" type="text" inputmode="decimal" placeholder="t.ex. 85" value="'+escapeHTML(settings.targetWaist)+'"><span class="field-suffix">cm</span></div>'+remain(latestWa,tWa,'cm')+'</div>'
   +   '</div>'
   + '</div>'
   + '<div class="card hero-pad">'
@@ -1563,9 +1613,9 @@ function foodFormHTML(f){
     + '<div class="grid2" style="margin-top:8px">'
     +   '<div><label class="field-label" for="'+pfx+'-unit">Mängdenhet</label><select id="'+pfx+'-unit" class="ai-select">'
     +     opt('g','gram (per 100 g)')+opt('ml','milliliter (per 100 ml)')+opt('st','styck (per st)')+'</select></div>'
-    +   '<div><label class="field-label" for="'+pfx+'-kcal">Energi</label><div class="field-wrap"><input id="'+pfx+'-kcal" type="number" inputmode="decimal" placeholder="kcal" value="'+kv+'"><span class="field-suffix">kcal</span></div></div>'
+    +   '<div><label class="field-label" for="'+pfx+'-kcal">Energi</label><div class="field-wrap"><input id="'+pfx+'-kcal" type="text" inputmode="decimal" placeholder="kcal" value="'+kv+'"><span class="field-suffix">kcal</span></div></div>'
     + '</div>'
-    + '<div style="margin-top:8px"><label class="field-label" for="'+pfx+'-protein">Protein</label><div class="field-wrap"><input id="'+pfx+'-protein" type="number" inputmode="decimal" placeholder="protein" value="'+pv+'"><span class="field-suffix">g protein</span></div></div>';
+    + '<div style="margin-top:8px"><label class="field-label" for="'+pfx+'-protein">Protein</label><div class="field-wrap"><input id="'+pfx+'-protein" type="text" inputmode="decimal" placeholder="protein" value="'+pv+'"><span class="field-suffix">g protein</span></div></div>';
 }
 
 function foodListHTML(){
@@ -1610,8 +1660,8 @@ function readFood(pfx){
   return {
     name: name,
     unit: $('#'+pfx+'-unit').value,
-    kcal: Math.max(0, round1(parseFloat($('#'+pfx+'-kcal').value)||0)),
-    protein: Math.max(0, round1(parseFloat($('#'+pfx+'-protein').value)||0))
+    kcal: Math.max(0, round1(parseNum($('#'+pfx+'-kcal').value)||0)),
+    protein: Math.max(0, round1(parseNum($('#'+pfx+'-protein').value)||0))
   };
 }
 
@@ -1676,6 +1726,7 @@ function wireToday(){
       mealType = b.dataset.type;
       document.querySelectorAll('.pill[data-type]').forEach(p=>p.className='pill'+(p.dataset.type===mealType?' active':''));
       const qt = $('#quick-target'); if(qt) qt.textContent = mealTypeLabel(mealType);
+      saveDraftDebounced(); // utkastet ska minnas vald måltidstyp, inte bara texten
       return;
     }
     const a = b.dataset.act;
@@ -1725,8 +1776,8 @@ function wireToday(){
     else if(a==='ep-del'){ editParts.splice(parseInt(b.dataset.i,10),1); refreshEditBox(); }
     else if(a==='ei-add'){
       const sel=$('#ei-food'), amtEl=$('#ei-add-amt');
-      if(commaWarning(amtEl)) return;
-      const amt=parseFloat(amtEl && amtEl.value);
+      if(badNumberWarning(amtEl)) return;
+      const amt=parseNum(amtEl && amtEl.value);
       if(!(amt>0)){ toast('Ange en mängd större än 0.', true); if(amtEl) amtEl.focus(); return; }
       const f=foodById(sel && sel.value); if(!f) return;
       editItems.push({ name:f.name, unit:f.unit, kcal:f.kcal, protein:f.protein, amount:amt });
@@ -1743,7 +1794,7 @@ function wireToday(){
         let patch;
         if(editItems){
           if(!editItems.length){ toast('Måltiden måste ha minst en ingrediens.', true); return; }
-          for(let k=0;k<editItems.length;k++){ if(!(parseFloat(editItems[k].amount)>0)){ toast('Ange en mängd större än 0 på alla ingredienser.', true); return; } }
+          for(let k=0;k<editItems.length;k++){ if(!(parseNum(editItems[k].amount)>0)){ toast('Ange en mängd större än 0 på alla ingredienser.', true); return; } }
           const sum = itemsSum(editItems);
           const oldAuto = autoDescFromItems(cur.items||[]);
           const newDesc = (!d || d===oldAuto) ? autoDescFromItems(editItems) : d;
@@ -1756,8 +1807,8 @@ function wireToday(){
           patch = { parts: editParts.map(p=>Object.assign({}, p)), desc:newDesc, type:type, kcal:Math.round(sum.kcal), protein:Math.round(sum.protein), up:Date.now() };
         } else {
           patch = { desc: d||cur.desc, type:type,
-            kcal: Math.max(0,Math.round(parseFloat($('#edit-kcal').value)||0)),
-            protein: Math.max(0,Math.round(parseFloat($('#edit-protein').value)||0)),
+            kcal: Math.max(0,Math.round(parseNum($('#edit-kcal').value)||0)),
+            protein: Math.max(0,Math.round(parseNum($('#edit-protein').value)||0)),
             up: Date.now() };
         }
         arr[idx]=Object.assign({}, cur, patch);
@@ -1853,20 +1904,19 @@ function wireToday(){
   if($('#ai-remove')) $('#ai-remove').onclick = function(){ apiKey=''; save(LS.apikey, ''); aiEditing=false; render(); };
 }
 
-/* type=number tömmer värdet helt om man skriver komma (svenskt tangentbord på mobilen).
-   Utan det här ser det bara ut som att appen struntar i knappen. */
-function badNumber(el){ return !!(el && el.value==='' && el.validity && el.validity.badInput); }
-function commaWarning(el){
+/* något står i fältet men går inte att tolka som tal — säg till istället för att tyst spara 0 */
+function badNumber(el){ if(!el) return false; const s=String(el.value||'').trim(); return s!=='' && isNaN(parseNum(s)); }
+function badNumberWarning(el){
   if(!badNumber(el)) return false;
-  toast('Använd punkt istället för komma, t.ex. 1.5', true);
+  toast('Skriv ett tal, t.ex. 150 eller 1,5.', true);
   el.focus(); return true;
 }
 
 function addBuilderRow(){
   const sel = $('#b-food'), amtEl = $('#b-amount');
   if(!sel) return;
-  if(commaWarning(amtEl)) return;
-  const amt = parseFloat(amtEl && amtEl.value);
+  if(badNumberWarning(amtEl)) return;
+  const amt = parseNum(amtEl && amtEl.value);
   if(!(amt>0)){ toast('Ange en mängd större än 0.', true); if(amtEl) amtEl.focus(); return; }
   builderRows.push({ foodId: sel.value, amount: amt });
   render(true);                                   // behåll skriven beskrivning och valt livsmedel
@@ -1878,8 +1928,8 @@ function readCurrentPart(){
   const desc = ($('#m-desc') && $('#m-desc').value || '').trim();
   if(!desc) return null;
   return { desc: desc,
-    kcal: Math.max(0, Math.round(parseFloat($('#m-kcal') && $('#m-kcal').value)||0)),
-    protein: Math.max(0, Math.round(parseFloat($('#m-protein') && $('#m-protein').value)||0)) };
+    kcal: Math.max(0, Math.round(parseNum($('#m-kcal') && $('#m-kcal').value)||0)),
+    protein: Math.max(0, Math.round(parseNum($('#m-protein') && $('#m-protein').value)||0)) };
 }
 
 function addPart(){
@@ -1930,12 +1980,12 @@ function addMeal(){
   const desc = (descEl && descEl.value || '').trim();
   // tyst return här var en av orsakerna till att "det händer inget" — säg vad som saknas
   if(!desc){ toast('Skriv vad du åt först.', true); if(descEl) descEl.focus(); return; }
-  if(commaWarning(kcalEl) || commaWarning(protEl)) return;
+  if(badNumberWarning(kcalEl) || badNumberWarning(protEl)) return;
   const entry = {
     id: uid(),
     type: mealType, desc:desc, up: Date.now(),
-    kcal: Math.max(0, Math.round(parseFloat(kcalEl && kcalEl.value)||0)),
-    protein: Math.max(0, Math.round(parseFloat(protEl && protEl.value)||0))
+    kcal: Math.max(0, Math.round(parseNum(kcalEl && kcalEl.value)||0)),
+    protein: Math.max(0, Math.round(parseNum(protEl && protEl.value)||0))
   };
   meals[day] = (meals[day]||[]).concat(entry);
   save(LS.meals, meals);
@@ -1956,7 +2006,7 @@ function wireBody(){
   $('#b-add').onclick = function(){
     const d = $('#b-date').value || todayStr();
     const wv = $('#b-weight').value, wav = $('#b-waist').value;
-    const w = wv===''?null:parseFloat(wv), wa = wav===''?null:parseFloat(wav);
+    const w = wv===''?null:parseNum(wv), wa = wav===''?null:parseNum(wav);
     if(w==null && wa==null) return;
     const idx = body.findIndex(x=>x.date===d);
     if(idx>=0){
@@ -2000,8 +2050,12 @@ function wireMal(){
 function wireChartTooltips(){
   let tip = document.getElementById('chart-tip');
   if(!tip){ tip = document.createElement('div'); tip.id='chart-tip'; tip.className='chart-tip'; document.body.appendChild(tip); }
+  const coarse = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
   const show = function(ev, el){ tip.textContent = el.getAttribute('data-tip'); tip.style.opacity='1';
-    tip.style.left=(ev.clientX+12)+'px'; tip.style.top=(ev.clientY-12)+'px'; };
+    // håll rutan inom skärmen (högra staplarna på en smal telefon) och ovanför fingret vid tryck
+    const w = tip.offsetWidth || 120, vw = window.innerWidth || 360;
+    let x = ev.clientX+12; if(x + w > vw-8) x = Math.max(8, ev.clientX - w - 12);
+    tip.style.left=x+'px'; tip.style.top=(ev.clientY-(coarse?48:12))+'px'; };
   const hide = function(){ tip.style.opacity='0'; };
   document.querySelectorAll('#tab-content .bar-hit').forEach(function(el){
     el.addEventListener('mouseenter', function(ev){ show(ev, el); });
@@ -2014,18 +2068,39 @@ function wireChartTooltips(){
 /* ---------- säkerhetskopiering (export/import till fil) ---------- */
 function backupStatus(msg, color){ const s=$('#backup-status'); if(s){ s.style.color=color||'var(--muted)'; s.textContent=msg||''; } }
 
+function downloadText(text, name){
+  const blob = new Blob([text], { type:'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = name;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(function(){ URL.revokeObjectURL(url); }, 1000);
+}
 function exportData(){
   const payload = { app:'matlogg', version:3, exportedAt:new Date().toISOString(),
     meals: meals, body: body, settings: settings, foods: foods, favorites: favorites, aimodel: aiModel };
-  const blob = new Blob([JSON.stringify(payload, null, 2)], { type:'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url; a.download = 'matlogg-backup-'+todayStr()+'.json';
-  document.body.appendChild(a); a.click(); document.body.removeChild(a);
-  setTimeout(function(){ URL.revokeObjectURL(url); }, 1000);
-  save(LS.lastExport, Date.now());
-  updateBackupReminder();
-  backupStatus('Säkerhetskopia sparad till din nedladdningsmapp.', 'var(--green)');
+  const json = JSON.stringify(payload, null, 2);
+  const name = 'matlogg-backup-'+todayStr()+'.json';
+  const done = function(msg){ save(LS.lastExport, Date.now()); updateBackupReminder(); backupStatus(msg, 'var(--green)'); };
+  // Pekskärm: dela-arket låter dig spara i Filer/iCloud/Drive eller skicka filen vidare.
+  // En "nedladdning" från en installerad app på iPhone hamnar annars på ett ställe man inte hittar.
+  const coarse = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+  if(coarse && navigator.share && navigator.canShare && typeof File==='function'){
+    try{
+      const file = new File([json], name, { type:'application/json' });
+      if(navigator.canShare({ files:[file] })){
+        navigator.share({ files:[file], title:'Matlogg säkerhetskopia' })
+          .then(function(){ done('Säkerhetskopian är delad/sparad.'); })
+          .catch(function(err){
+            if(err && err.name==='AbortError') return;            // användaren stängde arket
+            downloadText(json, name); done('Säkerhetskopia sparad till din nedladdningsmapp.');
+          });
+        return;
+      }
+    }catch(e){ /* faller tillbaka på nedladdning */ }
+  }
+  downloadText(json, name);
+  done('Säkerhetskopia sparad till din nedladdningsmapp.');
 }
 
 /* slår ihop en importerad BACKUP-FIL med lokalt — additivt, och importen häver
@@ -2130,6 +2205,7 @@ function updateBackupReminder(){
 /* ---------- start ---------- */
 function goTab(t){
   tab=t; editingMealId=null; editItems=null; editParts=null; editingFoodId=null; foodFilter=''; copySource=null; render();
+  try{ window.scrollTo(0,0); }catch(e){} // ny flik börjar högst upp — inte mitt i förra flikens scrolläge
   const tc = $('#tab-content');
   if(tc){ tc.classList.remove('fade'); void tc.offsetWidth; tc.classList.add('fade'); }
 }
@@ -2160,6 +2236,7 @@ document.addEventListener('visibilitychange', function(){
   if(document.visibilityState==='visible') handleResume();
 });
 window.addEventListener('pageshow', handleResume);   // återställd från bakåt-/bfcache
+window.addEventListener('online', function(){ if(syncUser){ clearTimeout(syncTimer); fullSync(false); } }); // nätet tillbaka → synka direkt
 window.addEventListener('focus', function(){ if(checkDayRollover()) render(true); });
 setInterval(function(){ if(checkDayRollover()) render(true); }, 60000); // dygnsbyte med appen öppen
 /* Registrera service worker för PWA/offline — bara över http(s), inte file:// */

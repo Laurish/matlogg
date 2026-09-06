@@ -311,6 +311,46 @@ console.log('\n9. Svep avbryter inte en pågående redigering');
 }
 
 /* ---------------------------------------------------------------- */
+console.log('\n11. Komma som decimaltecken (svenskt tangentbord) accepteras');
+{
+  const win = boot({ 'matlogg.settings': { addMethod:'skafferi' } });
+  win.document.querySelector('#b-food').value = 'f-agg';   // Ägg: 78 kcal / 6,3 g per st
+  q(win, '#b-amount').value = '1,5';
+  click(win, q(win, '#b-add-row'));
+  check('raden med "1,5" lades till', !!q(win, '.builder-row'), toastText(win));
+  click(win, q(win, '#m-add'));
+  const saved = (meals(win)[TODAY]||[])[0];
+  check('mängden tolkades som 1.5', saved && saved.items[0].amount === 1.5, saved && JSON.stringify(saved.items));
+  check('kcal räknades ut från 1,5 st', saved && saved.kcal === 117, saved && saved.kcal);
+  win.close();
+}
+{
+  const win = boot({ 'matlogg.settings': { addMethod:'manuell' } });
+  q(win, '#m-desc').value = 'Gröt';
+  q(win, '#m-kcal').value = '450,7';
+  q(win, '#m-protein').value = 'abc';
+  click(win, q(win, '#m-add'));
+  check('obegripligt tal stoppas med besked', !(meals(win)[TODAY]||[]).length && /tal/.test(toastText(win)), toastText(win));
+  q(win, '#m-protein').value = '12,4';
+  click(win, q(win, '#m-add'));
+  const saved = (meals(win)[TODAY]||[])[0];
+  check('kcal "450,7" blev 451', saved && saved.kcal === 451, saved && saved.kcal);
+  check('protein "12,4" blev 12', saved && saved.protein === 12, saved && saved.protein);
+  win.close();
+}
+
+console.log('\n12. Molnsynk skriver inte över enhetens egna val');
+{
+  const win = boot({ 'matlogg.settings': { addMethod:'manuell', theme:'dark', kcalGoal:'2000', up: 1000 } });
+  const changed = win.mergeSynced({ settings: { addMethod:'ai', theme:'light', kcalGoal:'2300', up: Date.now() } });
+  check('merge rapporterar ändring', changed === true);
+  const s = JSON.parse(win.localStorage.getItem('matlogg.settings'));
+  check('kcal-målet togs från molnet', s.kcalGoal === '2300', s.kcalGoal);
+  check('inmatningsmetoden är kvar lokal', s.addMethod === 'manuell', s.addMethod);
+  check('temat är kvar lokalt', s.theme === 'dark', s.theme);
+  win.close();
+}
+
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 (async function(){

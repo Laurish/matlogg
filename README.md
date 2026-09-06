@@ -1,8 +1,9 @@
 # Matlogg
 
 En liten app för att logga **energi, protein och kroppsmått**. Hela appen ligger i en enda fil
-([index.html](index.html)) – ingen installation, inget byggsteg, inget konto. All data sparas
-lokalt i webbläsarens `localStorage` på din enhet.
+([index.html](index.html)) – ingen installation, inget byggsteg. All data sparas lokalt i
+webbläsarens `localStorage` på din enhet, och kan valfritt synkas mellan enheter via ett
+moln-konto (fliken **Mål → Moln-synk**).
 
 ## Köra appen
 
@@ -28,6 +29,8 @@ Android/Chrome: meny → "Installera app" · iPhone/Safari: Dela → "Lägg till
   över 7 / 30 / 90 dagar.
 - På mobilen byter du dag genom att **svepa** vänster/höger på Idag-fliken. Snabbval- och
   kopiera-korten går att fälla ihop, och dagens totalsumma visas under måltidslistan.
+  Tal kan skrivas med **komma eller punkt** (1,5 och 1.5 betyder samma sak). Tema, vald
+  inmatningsmetod och ihopfällda kort är **per enhet** och synkas inte.
 - **Mål** – dagliga kcal-/proteinmål och kroppsmål (mållinjer i graferna). Valfri **hyllning med
   ljud** när dagens proteinmål nås (kan slås av/på).
 - **Skafferi** – eget livsmedelsbibliotek med näringsvärden per 100 g / 100 ml / styck. Förfyllt med
@@ -40,8 +43,9 @@ Android/Chrome: meny → "Installera app" · iPhone/Safari: Dela → "Lägg till
 
 Eftersom data ligger i `localStorage` (knutet till hur appen öppnas) bör du då och då
 **Exportera säkerhetskopia** längst ner i appen. Backup-filen (`matlogg-backup-ÅÅÅÅ-MM-DD.json`)
-kan importeras igen i vilken version som helst och slås ihop med befintliga data. API-nyckeln ingår
-**inte** i exporten. Backup-filerna är `.gitignore`:ade eftersom de innehåller personlig data.
+kan importeras igen i vilken version som helst och slås ihop med befintliga data. På telefonen
+öppnas dela-arket så att du kan spara filen i Filer/iCloud/Drive; på datorn laddas den ner.
+API-nyckeln ingår **inte** i exporten. Backup-filerna är `.gitignore`:ade eftersom de innehåller personlig data.
 
 ## Tester
 

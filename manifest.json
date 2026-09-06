@@ -1,7 +1,7 @@
 {
   "name": "Matlogg",
   "short_name": "Matlogg",
-  "description": "Logga energi, protein och kroppsmått – allt sparas lokalt på din enhet.",
+  "description": "Logga energi, protein och kroppsmått – synkas mellan dina enheter eller sparas bara lokalt.",
   "lang": "sv",
   "start_url": ".",
   "scope": ".",
@@ -10,6 +10,9 @@
   "background_color": "#F6F7F4",
   "theme_color": "#2E7D5B",
   "icons": [
-    { "src": "icon.svg", "type": "image/svg+xml", "sizes": "any", "purpose": "any maskable" }
+    { "src": "icon-192.png", "type": "image/png", "sizes": "192x192", "purpose": "any" },
+    { "src": "icon-512.png", "type": "image/png", "sizes": "512x512", "purpose": "any" },
+    { "src": "icon-maskable.png", "type": "image/png", "sizes": "512x512", "purpose": "maskable" },
+    { "src": "icon.svg", "type": "image/svg+xml", "sizes": "any", "purpose": "any" }
   ]
 }

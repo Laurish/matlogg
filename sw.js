@@ -1,12 +1,13 @@
 /* Matlogg service worker — gör appen installerbar och offline-kapabel när den serveras över https/localhost.
    Bump CACHE_VERSION vid varje release så gamla filer rensas. */
-const CACHE_VERSION = 'matlogg-v14';
+const CACHE_VERSION = 'matlogg-v15';
 const APP_SHELL = [
   './',
   './index.html',
   './manifest.json',
   './icon.svg',
-  './supabase.min.js'
+  './supabase.min.js',
+  './icon-192.png'
 ];
 
 self.addEventListener('install', function(e){
