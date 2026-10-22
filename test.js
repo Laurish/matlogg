@@ -351,6 +351,50 @@ console.log('\n12. Molnsynk skriver inte över enhetens egna val');
   win.close();
 }
 
+console.log('\n13. Molnets enhetsval smittar inte en enhet som aldrig valt något');
+{
+  const win = boot({ 'matlogg.settings': { kcalGoal:'2000', up: 1000 } });
+  win.mergeSynced({ settings: { addMethod:'ai', theme:'dark', collapseQuick:true, kcalGoal:'2300', up: Date.now() } });
+  const s = JSON.parse(win.localStorage.getItem('matlogg.settings'));
+  check('kcal-målet togs från molnet', s.kcalGoal === '2300', s.kcalGoal);
+  check('inmatningsmetoden följde inte med', s.addMethod === undefined, s.addMethod);
+  check('temat följde inte med', s.theme === undefined, s.theme);
+  check('ihopfällt kort följde inte med', s.collapseQuick === undefined, s.collapseQuick);
+  win.close();
+}
+
+console.log('\n14. Gamla sparade modellnamn byts mot dagens');
+{
+  const win = boot({ 'matlogg.aimodel': 'claude-haiku-4-5-20251001', 'matlogg.apikey': 'sk-ant-test' });
+  check('lagrat modellnamn uppdaterades', JSON.parse(win.localStorage.getItem('matlogg.aimodel')) === 'claude-haiku-5-5',
+        win.localStorage.getItem('matlogg.aimodel'));
+  const sel = q(win, '#ai-model');
+  check('väljaren visar den nya modellen', !!sel && sel.value === 'claude-haiku-5-5', sel && sel.value);
+  win.close();
+  const win2 = boot({ 'matlogg.aimodel': 'nagot-okant', 'matlogg.apikey': 'sk-ant-test' });
+  check('okänt namn faller tillbaka på standardmodellen', JSON.parse(win2.localStorage.getItem('matlogg.aimodel')) === 'claude-opus-5-5');
+  win2.close();
+}
+
+console.log('\n15. Kroppsmätning: tomt formulär och text i talfält säger till i stället för att tyst spara skräp');
+{
+  const win = boot({});
+  click(win, q(win, '#tab-kropp'));
+  click(win, q(win, '#b-add'));
+  const bodyRows = () => JSON.parse(win.localStorage.getItem('matlogg.body') || '[]');
+  check('tomt formulär sparar inget', bodyRows().length === 0);
+  check('tomt formulär ger besked', /Fyll i vikt/.test(toastText(win)), toastText(win));
+  q(win, '#b-weight').value = 'åttiofyra';
+  click(win, q(win, '#b-add'));
+  check('text i viktfältet stoppas', /Skriv ett tal/.test(toastText(win)), toastText(win));
+  check('inget sparades', bodyRows().length === 0);
+  q(win, '#b-weight').value = '84,5';
+  click(win, q(win, '#b-add'));
+  check('84,5 sparades som 84.5', bodyRows().length === 1 && bodyRows()[0].weight === 84.5, JSON.stringify(bodyRows()));
+  check('kvittens efter sparad mätning', /Mätning sparad/.test(toastText(win)), toastText(win));
+  win.close();
+}
+
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 (async function(){

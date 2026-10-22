@@ -13,7 +13,9 @@
 <meta name="apple-mobile-web-app-title" content="Matlogg" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&display=swap" />
+<!-- typsnittet laddas utan att blockera första målningen: på dåligt mobilnät blev sidan annars tom i sekunder -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&display=swap" media="print" onload="this.media='all'" />
+<noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&display=swap" /></noscript>
 <script>/* sätt temat före första målningen — annars blinkar mörkt läge ljust vid varje start */
 (function(){ try{ var s=JSON.parse(localStorage.getItem('matlogg.settings')||'{}'); var m=s.theme||'auto';
   var dark = m==='dark' || (m==='auto' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
@@ -44,6 +46,7 @@
   /* knappar: ingen 300 ms-fördröjning/dubbeltrycks-zoom, ingen textmarkering vid långtryck */
   button, .chip, .pill, .tab{touch-action:manipulation; -webkit-user-select:none; user-select:none; -webkit-touch-callout:none;}
   input, select, textarea{touch-action:manipulation;}
+  select{max-width:100%; min-width:0;} /* en select krymper annars aldrig under sitt längsta alternativ */
   .wrap{max-width:600px; margin:0 auto; padding:24px 16px 64px;}
   .topbar{display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;}
   .title{font-family:var(--display); font-size:22px; font-weight:700; letter-spacing:-0.01em;}
@@ -104,7 +107,7 @@
   .ai-box{margin-top:10px; padding:14px; border:1px dashed var(--border); border-radius:12px; background:var(--surface-box);}
   .ai-status{font-size:12px; margin-top:6px; min-height:14px;}
   .ai-model-row{display:flex; align-items:center; gap:8px; margin-top:10px;}
-  .ai-select{flex:1; font-family:inherit; font-size:14px; color:var(--ink); background:var(--input-bg);
+  .ai-select{flex:1 1 0; min-width:0; font-family:inherit; font-size:14px; color:var(--ink); background:var(--input-bg);
              border:1px solid var(--border); border-radius:10px; padding:8px 10px; outline:none; cursor:pointer;}
   .group-head{display:flex; align-items:center; justify-content:space-between; padding:10px 16px;
               background:var(--surface-head); border-radius:16px 16px 0 0; font-size:14px; font-weight:600;}
@@ -232,6 +235,10 @@
     .topbar{margin-bottom:16px;}
     .row{gap:8px; padding:12px 12px 12px 16px;}
     .hist-date{width:104px; font-size:13px;}
+    /* medan ett fält har fokus ligger tangentbordet uppe och bottennaven skulle flyta ovanpå det
+       och skymma det man skriver i — göm den tills fältet släpps (klassen sätts i skriptet) */
+    body.kb-open .tabs{display:none;}
+    body.kb-open .wrap{padding-bottom:24px;}
     /* notiser ska ligga ovanför bottennaven, inte täcka den */
     .toast{bottom:calc(80px + env(safe-area-inset-bottom)); max-width:calc(100vw - 32px); text-align:center;}
   }
@@ -284,11 +291,19 @@ const chevSVG = '<svg aria-hidden="true" focusable="false" width="16" height="16
 
 /* ---------- AI ---------- */
 const MODELS = [
-  { id:'claude-opus-4-8',            label:'Opus 4.8 — bäst (~1 öre/uppskattning)' },
-  { id:'claude-sonnet-4-6',          label:'Sonnet 4.6 — bra balans (~0,6 öre)' },
-  { id:'claude-haiku-4-5-20251001',  label:'Haiku 4.5 — billigast & snabbast (~0,2 öre)' }
+  { id:'claude-opus-5-5',   label:'Opus 5.5 — bäst (några öre)' },
+  { id:'claude-sonnet-5-5', label:'Sonnet 5.5 — bra balans (~1 öre)' },
+  { id:'claude-haiku-5-5',  label:'Haiku 5.5 — billigast (<0,2 öre)' }
 ];
-const DEFAULT_MODEL = 'claude-opus-4-8';
+const DEFAULT_MODEL = 'claude-opus-5-5';
+/* modellnamn som tidigare versioner sparade — byts tyst mot dagens motsvarighet */
+const LEGACY_MODELS = { 'claude-opus-4-8':'claude-opus-5-5', 'claude-sonnet-4-6':'claude-sonnet-5-5',
+                        'claude-haiku-4-5-20251001':'claude-haiku-5-5', 'claude-haiku-4-5':'claude-haiku-5-5' };
+function migrateLegacyModel(){
+  if(MODELS.some(function(m){ return m.id===aiModel; })) return;
+  aiModel = LEGACY_MODELS[aiModel] || DEFAULT_MODEL;
+  save(LS.aimodel, aiModel);
+}
 
 /* ---------- standardskafferi (kan ändras/tas bort i appen) ---------- */
 /* unit: 'g'/'ml' => kcal & protein per 100 enheter · 'st' => per styck */
@@ -466,7 +481,7 @@ function applyPendingDraftFields(){
 const SUPABASE_URL = 'https://schgcawfirvzlemwdoqf.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNjaGdjYXdmaXJ2emxlbXdkb3FmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgwMDIyMzcsImV4cCI6MjA5MzU3ODIzN30.6HYHPlZF3gXlFoR30qVJjJ6-zVYyKEv8P-MTrNBOjYo';
 const SYNC_TABLE = 'matlogg_state';
-const APP_VERSION = 15; // håll i takt med CACHE_VERSION i sw.js
+const APP_VERSION = 16; // håll i takt med CACHE_VERSION i sw.js
 
 let sb = null;              // supabase-klient
 let syncUser = null;        // inloggad användare (null = utloggad)
@@ -503,6 +518,7 @@ function initSync(){
     const loginChanged = newId !== prevId; // falskt vid TOKEN_REFRESHED (samma användare)
     if(loginChanged && syncUser){ remoteRev = null; fullSync(false); } // fullSync renderar vid behov
     if(!syncUser) syncStatusMsg('');
+    updateBackupReminder(); // inloggad och synkad = ingen backup-påminnelse
     const newBanner = authResolved && !syncUser;
     // rendera bara om utloggad-bannern byter läge, eller om login ändrats medan Mål-fliken visas (synk-kortet)
     if(newBanner !== prevBanner || (loginChanged && tab==='mal')) render(true);
@@ -575,8 +591,9 @@ function mergeSynced(inc){
   favorites = favorites.filter(function(f){ return tombOf('favorites', favKey(f.desc)) <= (f.up||0); });
   // 6) inställningar + AI-modell: nyaste settings-versionen vinner i sin helhet
   if(inc.settings && typeof inc.settings==='object' && (inc.settings.up||0) > (settings.up||0)){
-    const local = {}; DEVICE_PREFS.forEach(function(k){ if(k in settings) local[k] = settings[k]; });
-    settings = Object.assign({}, settings, inc.settings, local);
+    const incoming = Object.assign({}, inc.settings);
+    DEVICE_PREFS.forEach(function(k){ delete incoming[k]; });
+    settings = Object.assign({}, settings, incoming);
     if(inc.aimodel) aiModel = inc.aimodel;
     applyTheme();
   }
@@ -635,6 +652,7 @@ function pushState(attempt){
     remoteRev = (r.data && r.data[0]) ? r.data[0].updated_at : nowIso;
     lastSyncMs = Date.now(); save(LS.lastSync, lastSyncMs);
     syncStatusMsg('Synkad '+new Date(lastSyncMs).toLocaleTimeString('sv-SE',{hour:'2-digit',minute:'2-digit'}));
+    updateBackupReminder();
   });
 }
 
@@ -898,7 +916,8 @@ async function estimateMacros(description, key){
     },
     body: JSON.stringify({
       model: aiModel,
-      max_tokens: 400,
+      max_tokens: 2000,                      // tänkandet räknas in i taket — 400 kunde klippa svaret
+      output_config: { effort: 'low' },      // kort tänkande räcker för en näringsuppskattning och håller priset nere
       messages:[{ role:"user", content:
         'Du är en noggrann näringsberäknare. Uppskatta totala kalorier (kcal) och protein i gram för: "'+description+'". '
         +'Utgå från typiska näringsvärden per 100 g för varje ingrediens och skala till den angivna mängden. '
@@ -1350,7 +1369,7 @@ function todayHTML(){
       +   '<button class="btn ai-btn" id="ai-save" style="flex:1">Spara nyckel</button>'
       +   (apiKey ? '<button class="btn" id="ai-remove" style="width:auto;background:var(--surface3);color:var(--muted)">Ta bort</button>' : '')
       + '</div>'
-      + '<div class="hint" style="margin-top:6px">Skaffa en nyckel på console.anthropic.com. API-användning faktureras separat från ditt Claude-konto — runt en tiondels öre per uppskattning.</div>'
+      + '<div class="hint" style="margin-top:6px">Skaffa en nyckel på console.anthropic.com. API-användning faktureras separat från ditt Claude-konto — från bråkdelar av ett öre (Haiku) till några öre (Opus) per uppskattning.</div>'
       + '</div>';
 
   const syncWarn = (syncConfigured() && sb && authResolved && !syncUser)
@@ -2005,9 +2024,11 @@ function wireBody(){
   };
   $('#b-add').onclick = function(){
     const d = $('#b-date').value || todayStr();
-    const wv = $('#b-weight').value, wav = $('#b-waist').value;
+    const wEl = $('#b-weight'), waEl = $('#b-waist');
+    if(badNumberWarning(wEl) || badNumberWarning(waEl)) return;
+    const wv = (wEl.value||'').trim(), wav = (waEl.value||'').trim();
     const w = wv===''?null:parseNum(wv), wa = wav===''?null:parseNum(wav);
-    if(w==null && wa==null) return;
+    if(w==null && wa==null){ toast('Fyll i vikt eller mage först.', true); wEl.focus(); return; }
     const idx = body.findIndex(x=>x.date===d);
     if(idx>=0){
       body[idx] = Object.assign({}, body[idx], { weight: w!=null?w:body[idx].weight, waist: wa!=null?wa:body[idx].waist, up: Date.now() });
@@ -2016,6 +2037,7 @@ function wireBody(){
     }
     save(LS.body, body);
     render();
+    toast('Mätning sparad · '+dayLabel(d));
   };
   wireChartTooltips();
 }
@@ -2187,7 +2209,8 @@ function updateBackupReminder(){
   const hasData = Object.keys(meals).length>0 || body.length>0;
   const last = load(LS.lastExport, null);
   const WEEK = 7*24*60*60*1000;
-  const due = hasData && (!last || (Date.now()-last) > WEEK);
+  const synced = !!(syncUser && lastSyncMs && (Date.now()-lastSyncMs) < WEEK); // molnet är redan en kopia
+  const due = hasData && !synced && (!last || (Date.now()-last) > WEEK);
   if(due){
     if(!note){
       note = document.createElement('div'); note.id='backup-reminder'; note.className='backup-reminder';
@@ -2218,6 +2241,7 @@ $('#export-btn').onclick = exportData;
 $('#import-btn').onclick = function(){ $('#import-file').click(); };
 updateBackupReminder();
 $('#import-file').onchange = function(){ if(this.files && this.files[0]){ importData(this.files[0]); this.value=''; } };
+migrateLegacyModel();  // gamla sparade modellnamn → dagens, innan väljaren ritas
 restoreDraft();        // återställ ev. halvskriven måltid (mobil kan ha dödat fliken)
 render();
 applyPendingDraftFields(); // fyll i beskrivning/kcal/protein från utkastet
@@ -2239,6 +2263,19 @@ window.addEventListener('pageshow', handleResume);   // återställd från bakå
 window.addEventListener('online', function(){ if(syncUser){ clearTimeout(syncTimer); fullSync(false); } }); // nätet tillbaka → synka direkt
 window.addEventListener('focus', function(){ if(checkDayRollover()) render(true); });
 setInterval(function(){ if(checkDayRollover()) render(true); }, 60000); // dygnsbyte med appen öppen
+/* Pekskärm: bottennaven flyter ovanpå tangentbordet och skymmer fältet man skriver i — göm den
+   medan ett fält har fokus. Liten fördröjning så att hopp mellan två fält inte blinkar. */
+(function(){
+  if(!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches)) return;
+  const isField = function(el){ return !!(el && el.matches && el.matches('input:not([type=checkbox]):not([type=radio]):not([type=file]), select, textarea')); };
+  let kbTimer = null;
+  document.addEventListener('focusin', function(e){ if(isField(e.target)){ clearTimeout(kbTimer); document.body.classList.add('kb-open'); } });
+  document.addEventListener('focusout', function(e){
+    if(!isField(e.target)) return;
+    clearTimeout(kbTimer);
+    kbTimer = setTimeout(function(){ if(!isField(document.activeElement)) document.body.classList.remove('kb-open'); }, 150);
+  });
+})();
 /* Registrera service worker för PWA/offline — bara över http(s), inte file:// */
 if('serviceWorker' in navigator && location.protocol.indexOf('http')===0){
   navigator.serviceWorker.register('sw.js').catch(function(){ /* offline-cache är valfritt */ });
