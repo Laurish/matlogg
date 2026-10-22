@@ -123,6 +123,33 @@ console.log('\n2b. Dygnsbyte när användaren medvetet står på en annan dag');
   const keys = Object.keys(meals(win));
   check('vald dag flyttades inte under användaren', !keys.includes(iso(new win.Date())), keys.join(','));
   check('måltiden hamnade på den valda dagen', (meals(win)[YEST]||[]).length === 2, keys.join(','));
+  check('kvittensen varnar att det inte är idag', /inte idag/.test(toastText(win)), toastText(win));
+  win.close();
+}
+
+console.log('\n2c. Flera dygn i bakgrunden: tillbaka till idag även från en vald dag');
+{
+  const win = boot(seedYesterday());
+  click(win, q(win, '[data-act="prev"]'));             // stod på igår när telefonen lades ifrån
+  shiftClock(win, 3);
+  win.dispatchEvent(new win.Event('focus'));
+  const today3 = iso(new win.Date());
+  click(win, q(win, '.chip[data-act="quick"]'));
+  check('vyn hoppade till dagens datum', (meals(win)[today3]||[]).length === 1, Object.keys(meals(win)).join(','));
+  check('inget hamnade på den gamla dagen', (meals(win)[YEST]||[]).length === 1);
+  win.close();
+}
+
+console.log('\n2d. Timmar frusen över ett dygnsbyte: tillbaka till idag');
+{
+  const win = boot(seedYesterday());
+  click(win, q(win, '[data-act="prev"]'));
+  win.localStorage.setItem('matlogg.lastActive', JSON.stringify(Date.now() - 8*3600*1000));
+  shiftClock(win, 1);
+  win.dispatchEvent(new win.Event('pageshow'));         // appen väcks
+  const tomorrow = iso(new win.Date());
+  click(win, q(win, '.chip[data-act="quick"]'));
+  check('vyn hoppade till dagens datum', (meals(win)[tomorrow]||[]).length === 1, Object.keys(meals(win)).join(','));
   win.close();
 }
 
@@ -134,6 +161,7 @@ console.log('\n3. Dragning över en rad ska inte utlösa raden');
   check('ingen måltid kopierades av misstag', !(meals(win)[TODAY]||[]).length,
     JSON.stringify(meals(win)[TODAY]||[]));
   check('svepet bytte dag istället', dateLabel(win).length > 0);
+  check('svepet kvitterade vilken dag som visas', /Visar/.test(toastText(win)), toastText(win));
   win.close();
 }
 {
@@ -255,19 +283,29 @@ console.log('\n6c. Metodbyte tappar inte det du redan skrivit');
 }
 
 /* ---------------------------------------------------------------- */
-console.log('\n7. Utkast minns vilken dag det hörde till');
+console.log('\n7. Utkast från en annan dag byter inte dag tyst — kortet frågar');
 {
-  const win = boot({
-    'matlogg.draft': { desc:'halvskriven middag', kcal:'', protein:'', mealType:'middag',
-      builderRows:[], manualParts:[], day:YEST, at:Date.now()-60000 }
-  });
-  check('appen öppnas på utkastets dag',
-    dateLabel(win).indexOf(String(parseInt(YEST.split('-')[2],10))) >= 0, dateLabel(win));
+  const draft = { desc:'halvskriven middag', kcal:'', protein:'', mealType:'middag',
+      builderRows:[], manualParts:[], day:YEST, at:Date.now()-60000 };
+  const win = boot({ 'matlogg.draft': draft });
+  const todayLabel = new win.Date(TODAY+'T12:00:00').toLocaleDateString('sv-SE',{weekday:'short',day:'numeric',month:'long'});
+  check('appen öppnas på idag', dateLabel(win) === todayLabel, dateLabel(win));
   check('texten återställdes', q(win, '#m-desc').value === 'halvskriven middag');
+  check('kortet frågar vilken dag måltiden hör till', !!q(win, '[data-act="draft-day"]'));
   click(win, q(win, '#m-add'));
-  check('måltiden hamnade på utkastets dag', (meals(win)[YEST]||[]).length === 1,
+  check('utan val hamnar måltiden på idag', (meals(win)[TODAY]||[]).length === 1 && !(meals(win)[YEST]||[]).length,
     Object.keys(meals(win)).join(','));
+  check('frågan försvann när måltiden sparats', !q(win, '[data-act="draft-day"]'));
   win.close();
+
+  const win2 = boot({ 'matlogg.draft': draft });
+  click(win2, q(win2, '[data-act="draft-day"]'));      // ett tryck: logga på utkastets dag
+  check('vyn bytte till utkastets dag', dateLabel(win2).indexOf(String(parseInt(YEST.split('-')[2],10))) >= 0, dateLabel(win2));
+  check('texten följde med', q(win2, '#m-desc').value === 'halvskriven middag', q(win2, '#m-desc').value);
+  click(win2, q(win2, '#m-add'));
+  check('måltiden hamnade på utkastets dag', (meals(win2)[YEST]||[]).length === 1, Object.keys(meals(win2)).join(','));
+  check('kvittensen varnar att det inte är idag', /inte idag/.test(toastText(win2)), toastText(win2));
+  win2.close();
 }
 
 console.log('\n7b. Gammalt utkast återanvänds inte');

@@ -161,6 +161,7 @@
          transition:opacity .2s, transform .2s; box-shadow:0 6px 20px rgba(0,0,0,.22); pointer-events:none; max-width:90vw;}
   .toast.show{opacity:1; transform:translateX(-50%) translateY(0);}
   .toast.err{background:var(--error);}
+  .toast.warn{background:var(--amber);}
   .edit-row{display:flex; flex-direction:column; gap:8px; padding:12px 16px; border-top:1px solid var(--border);}
   .edit-row .grid2{gap:8px;}
   .edit-actions{display:flex; gap:8px;}
@@ -327,7 +328,7 @@ const DEFAULT_FOODS = [
 ];
 
 /* ---------- lagring (sparas på din dator) ---------- */
-const LS = { meals:'matlogg.meals', body:'matlogg.body', settings:'matlogg.settings', apikey:'matlogg.apikey', aimodel:'matlogg.aimodel', foods:'matlogg.foods', favorites:'matlogg.favorites', tombstones:'matlogg.tombstones', draft:'matlogg.draft', lastExport:'matlogg.lastExport', lastSync:'matlogg.lastSync' };
+const LS = { meals:'matlogg.meals', body:'matlogg.body', settings:'matlogg.settings', apikey:'matlogg.apikey', aimodel:'matlogg.aimodel', foods:'matlogg.foods', favorites:'matlogg.favorites', tombstones:'matlogg.tombstones', draft:'matlogg.draft', lastExport:'matlogg.lastExport', lastSync:'matlogg.lastSync', lastActive:'matlogg.lastActive' };
 // nycklar som ingår i moln-synken (AI-nyckeln OCH utkastet medvetet INTE med)
 const SYNC_KEYS = {}; [LS.meals, LS.body, LS.settings, LS.foods, LS.favorites, LS.aimodel, LS.tombstones].forEach(function(k){ SYNC_KEYS[k]=1; });
 function load(k, fb){ try{ const v=localStorage.getItem(k); return v?JSON.parse(v):fb; }catch(e){ return fb; } }
@@ -449,15 +450,17 @@ function saveDraft(){
     mealType:mealType, builderRows:builderRows, manualParts:manualParts, day:day, at:Date.now() })); }catch(e){}
 }
 function saveDraftDebounced(){ clearTimeout(draftTimer); draftTimer=setTimeout(saveDraft, 500); }
-function clearDraft(){ clearTimeout(draftTimer); carriedFields = null; try{ localStorage.removeItem(LS.draft); }catch(e){} }
+function clearDraft(){ clearTimeout(draftTimer); carriedFields = null; draftDay = null; try{ localStorage.removeItem(LS.draft); }catch(e){} }
 const DRAFT_MAX_AGE = 12*3600*1000; // äldre utkast är inte längre "appen dog mitt i" — då är risken större att de hamnar fel
-let draftDayNote = null;            // sätts när utkastet hörde till en annan dag än idag
+let draftDay = null;                // utkastets dag när den skiljer sig från idag — användaren väljer själv i kortet
 function restoreDraft(){
   const d = load(LS.draft, null); if(!d) return;
   if(d.at){
     if(Date.now()-d.at > DRAFT_MAX_AGE){ clearDraft(); return; }
-    // utkastet skrevs på en annan dag — återgå dit, annars hade måltiden hamnat på fel datum
-    if(d.day && d.day !== day){ day = d.day; draftDayNote = d.day; }
+    // utkastet skrevs på en annan dag. Vi byter INTE dag tyst — det la måltider på fel datum
+    // på mobilen (skrev man på kvällen hamnade morgonens måltid på gårdagen). Kortet visar
+    // i stället en fråga där användaren väljer dag med ett tryck.
+    if(d.day && d.day !== day) draftDay = d.day;
   }
   if(d.mealType) mealType = d.mealType;
   if(Array.isArray(d.builderRows)) builderRows = d.builderRows;
@@ -481,7 +484,7 @@ function applyPendingDraftFields(){
 const SUPABASE_URL = 'https://schgcawfirvzlemwdoqf.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNjaGdjYXdmaXJ2emxlbXdkb3FmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgwMDIyMzcsImV4cCI6MjA5MzU3ODIzN30.6HYHPlZF3gXlFoR30qVJjJ6-zVYyKEv8P-MTrNBOjYo';
 const SYNC_TABLE = 'matlogg_state';
-const APP_VERSION = 16; // håll i takt med CACHE_VERSION i sw.js
+const APP_VERSION = 17; // håll i takt med CACHE_VERSION i sw.js
 
 let sb = null;              // supabase-klient
 let syncUser = null;        // inloggad användare (null = utloggad)
@@ -711,12 +714,18 @@ function syncSignOut(){
 
 /* ---------- liten toast (notiser) ---------- */
 let toastTimer = null;
-function toast(msg, isErr){
+function toast(msg, isErr){ // isErr: true = röd, 'warn' = gul och längre
   let el = document.getElementById('toast');
   if(!el){ el = document.createElement('div'); el.id='toast'; el.className='toast'; el.setAttribute('role','status'); document.body.appendChild(el); }
-  el.textContent = msg; el.className = 'toast show'+(isErr?' err':'');
+  const kind = isErr==='warn' ? ' warn' : isErr ? ' err' : '';
+  el.textContent = msg; el.className = 'toast show'+kind;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(function(){ el.className = 'toast'+(isErr?' err':''); }, 3200);
+  toastTimer = setTimeout(function(){ el.className = 'toast'+kind; }, isErr==='warn' ? 5000 : 3200);
+}
+/* kvittens efter tillägg: på en annan dag än idag blir den gul och tydlig — där upptäcks felen */
+function addedToast(msg){
+  if(day===todayStr()) toast(msg);
+  else toast(msg+' — OBS: inte idag', 'warn');
 }
 
 /* ---------- firande när proteinmålet nås ---------- */
@@ -826,13 +835,18 @@ function dayLabel(iso){ return iso===todayStr() ? 'idag' : prettyDate(iso); }
    På mobilen stängs appen aldrig riktigt — den fryses i bakgrunden. Utan den här kollen
    pekar `day` fortfarande på gårdagen när man plockar upp telefonen igen, och allt man
    loggar hamnar på fel dag. Kollas när appen väcks och en gång i minuten. */
-function checkDayRollover(){
+const LONG_AWAY_MS = 6*3600*1000;
+function checkDayRollover(awayMs){
   const t = todayStr();
   if(t === knownToday) return false;
   if(editingMealId) return false;              // avbryt inte en pågående redigering — vi tar det strax
   const wasOnToday = (day === knownToday);
+  // Flera dygn har gått, eller appen har legat frusen i timmar: då är dagen man tittade på
+  // inte längre ett medvetet val. Att stanna kvar där la måltider på fel datum på mobilen.
+  const daysPassed = Math.round((new Date(t+'T12:00:00') - new Date(knownToday+'T12:00:00'))/86400000);
+  const stale = daysPassed >= 2 || (awayMs||0) >= LONG_AWAY_MS;
   knownToday = t;
-  if(wasOnToday){
+  if(wasOnToday || stale){
     day = t; copySource = null;
     toast('Ny dag — du loggar nu på '+prettyDate(day)+'.');
   }
@@ -1372,6 +1386,18 @@ function todayHTML(){
       + '<div class="hint" style="margin-top:6px">Skaffa en nyckel på console.anthropic.com. API-användning faktureras separat från ditt Claude-konto — från bråkdelar av ett öre (Haiku) till några öre (Opus) per uppskattning.</div>'
       + '</div>';
 
+  // Datumet står högst upp och är ofta utanför skärmen när man skriver — säg i kortet vilken dag som gäller
+  let dayNotice = '';
+  if(draftDay && draftDay !== day){
+    dayNotice = '<div class="backup-reminder" role="status" style="display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;justify-content:space-between">'
+      + '<span>Du började skriva den här måltiden '+prettyDate(draftDay)+'.</span>'
+      + '<span style="white-space:nowrap"><button class="linkbtn" data-act="draft-day" style="color:inherit">Logga på '+prettyDate(draftDay)+'</button>'
+      + ' · <button class="linkbtn" data-act="draft-drop" style="color:inherit">Släng</button></span></div>';
+  } else if(!isToday){
+    dayNotice = '<div class="backup-reminder" role="status" style="display:flex;gap:12px;align-items:center;justify-content:space-between">'
+      + '<span>Du loggar på <strong>'+prettyDate(day)+'</strong>, inte idag.</span>'
+      + '<button class="linkbtn" data-act="today" style="color:inherit;white-space:nowrap">Gå till idag</button></div>';
+  }
   const syncWarn = (syncConfigured() && sb && authResolved && !syncUser)
     ? '<button class="backup-reminder" data-act="goto-sync" style="display:block;width:100%;border:0;cursor:pointer;text-align:center;font-family:inherit">'
       + '⚠️ Du är utloggad ur moln-synken — det du loggar sparas bara på den här enheten. Tryck här för att logga in.</button>'
@@ -1392,6 +1418,7 @@ function todayHTML(){
   +   '</div>'
   + '</div>'
   + '<div class="card hero-pad">'
+  +   dayNotice
   +   '<div class="pills">'+pills+'</div>'
   +   '<input id="m-desc" type="text" placeholder="t.ex. två ägg, en skiva rågbröd med smör och ost">'
   +   '<div class="hint">'+descHint+'</div>'
@@ -1453,7 +1480,7 @@ function bodyHTML(){
   + '<div class="grid2">'+statCard('Vikt',lastW,'kg',dW,'var(--blue)')+statCard('Mage',lastWa,'cm',dWa,'var(--green)')+'</div>'
   + '<div class="card hero-pad">'
   +   '<div class="chart-title">Registrera mätning</div>'
-  +   '<input id="b-date" type="date" value="'+day+'" max="'+todayStr()+'" style="margin-bottom:8px">'
+  +   '<input id="b-date" type="date" value="'+todayStr()+'" max="'+todayStr()+'" style="margin-bottom:8px">'
   +   '<div class="grid2">'
   +     '<div class="field-wrap"><input id="b-weight" type="text" inputmode="decimal" placeholder="vikt"><span class="field-suffix">kg</span></div>'
   +     '<div class="field-wrap"><input id="b-waist" type="text" inputmode="decimal" placeholder="mage"><span class="field-suffix">cm</span></div>'
@@ -1770,7 +1797,7 @@ function wireToday(){
       const prevProtein = totalsFor(day).protein;
       meals[day] = (meals[day]||[]).concat(copyMealEntry(e));
       save(LS.meals, meals); maybeCelebrate(prevProtein); render();
-      toast('Kopierad till '+dayLabel(day)+': '+e.desc);
+      addedToast('Kopierad till '+dayLabel(day)+': '+e.desc);
     }
     else if(a==='copy-day'){
       const srcArr = meals[b.dataset.src]||[];
@@ -1778,8 +1805,10 @@ function wireToday(){
       const prevProtein = totalsFor(day).protein;
       meals[day] = (meals[day]||[]).concat(srcArr.map(copyMealEntry));
       save(LS.meals, meals); maybeCelebrate(prevProtein); render();
-      toast('Kopierade '+srcArr.length+' måltid'+(srcArr.length===1?'':'er')+' från '+prettyDate(b.dataset.src)+' till '+dayLabel(day)+'.');
+      addedToast('Kopierade '+srcArr.length+' måltid'+(srcArr.length===1?'':'er')+' från '+prettyDate(b.dataset.src)+' till '+dayLabel(day));
     }
+    else if(a==='draft-day'){ day = draftDay; draftDay = null; copySource = null; render(true); saveDraft(); toast('Visar '+prettyDate(day)+'.'); }
+    else if(a==='draft-drop'){ clearDraft(); builderRows = []; manualParts = []; render(); toast('Utkastet slängt.'); }
     else if(a==='toggle-quick'){ settings.collapseQuick=!settings.collapseQuick; save(LS.settings, settings); render(); }
     else if(a==='toggle-copy'){ settings.collapseCopy=!settings.collapseCopy; save(LS.settings, settings); render(); }
     else if(a==='goto-sync'){ goTab('mal'); const em=$('#sy-email'); if(em) em.focus(); }
@@ -1870,7 +1899,7 @@ function wireToday(){
       if(Array.isArray(r.parts)) entry.parts = r.parts.map(function(p){ return Object.assign({}, p); });
       meals[day] = (meals[day]||[]).concat(entry); save(LS.meals, meals); maybeCelebrate(prevProtein); render();
       // listan ligger långt ner på mobilen — kvittera vad som lades till och var
-      toast(r.desc+' → '+mealTypeLabel(mealType)+' '+dayLabel(day));
+      addedToast(r.desc+' → '+mealTypeLabel(mealType)+' '+dayLabel(day));
     }
   };
   // breda knappar: samma skydd som raderna — en dragning över dem ska inte utlösa dem
@@ -1902,14 +1931,17 @@ function wireToday(){
     const dx=t.clientX-touchX, dy=t.clientY-touchY;
     // fingret har dragits — klicket som följer är ingen knapptryckning
     if(Math.max(Math.abs(dx), Math.abs(dy)) > TAP_SLOP) setSwallowClick(true);
-    const swipe = touchSwipeOK && !editingMealId && (Date.now()-touchT) < 900
+    const swipe = touchSwipeOK && !editingMealId && !document.body.classList.contains('kb-open') && (Date.now()-touchT) < 900
       && Math.abs(dx) > SWIPE_MIN && Math.abs(dx) > Math.abs(dy)*1.8;  // tydligt vågrätt, inte en scroll som glider
     touchSwipeOK = false;
     if(swipe){
       setSwallowClick(true);
       pendingRerender = false;
-      if(dx<0){ if(day!==todayStr()){ day=shiftDay(day,1); copySource=null; render(); } }
-      else { day=shiftDay(day,-1); copySource=null; render(); }
+      const before = day;
+      if(dx<0){ if(day!==todayStr()) day=shiftDay(day,1); }
+      else day=shiftDay(day,-1);
+      // datumet står ofta utanför skärmen — säg vad som visas, annars byter dagen obemärkt
+      if(day!==before){ copySource=null; render(); toast('Visar '+dayLabel(day)+'.'); }
       return;
     }
     flushPendingRender();
@@ -1977,7 +2009,7 @@ function addMeal(){
     clearDraft();
     maybeCelebrate(prevProtein);
     render();
-    toast('Måltid tillagd från skafferiet · '+mealTypeLabel(mealType)+' '+dayLabel(day));
+    addedToast('Måltid tillagd från skafferiet · '+mealTypeLabel(mealType)+' '+dayLabel(day));
     return;
   }
   // delar: allt ihopskrivet blir EN rad (halvskriven del i fälten räknas med)
@@ -1992,7 +2024,7 @@ function addMeal(){
     clearDraft();
     maybeCelebrate(prevProtein);
     render();
-    toast('Måltid med '+parts.length+' delar tillagd som en rad · '+mealTypeLabel(mealType)+' '+dayLabel(day));
+    addedToast('Måltid med '+parts.length+' delar tillagd som en rad · '+mealTypeLabel(mealType)+' '+dayLabel(day));
     return;
   }
   const descEl = $('#m-desc'), kcalEl = $('#m-kcal'), protEl = $('#m-protein');
@@ -2011,7 +2043,7 @@ function addMeal(){
   clearDraft();
   maybeCelebrate(prevProtein);
   render();
-  toast('Tillagd · '+mealTypeLabel(mealType)+' '+dayLabel(day));
+  addedToast('Tillagd · '+mealTypeLabel(mealType)+' '+dayLabel(day));
 }
 
 function wireBody(){
@@ -2245,24 +2277,27 @@ migrateLegacyModel();  // gamla sparade modellnamn → dagens, innan väljaren r
 restoreDraft();        // återställ ev. halvskriven måltid (mobil kan ha dödat fliken)
 render();
 applyPendingDraftFields(); // fyll i beskrivning/kcal/protein från utkastet
-if(draftDayNote){ toast('Fortsätter på din påbörjade måltid för '+prettyDate(draftDayNote)+'.'); draftDayNote=null; }
 if($('#app-version')) $('#app-version').textContent = 'Matlogg v'+APP_VERSION;
 initSync();
 
 /* ---------- appen vaknar igen ----------
    Mobilen stänger sällan appen — den fryser den. Vid varje uppvaknande måste vi både
    kontrollera om dygnet har bytt (annars loggas allt på gårdagen) och hämta färska data. */
+function noteActive(){ save(LS.lastActive, Date.now()); }
 function handleResume(){
-  if(checkDayRollover()) render(true);
+  const away = Math.max(0, Date.now() - (parseInt(load(LS.lastActive, 0), 10) || Date.now()));
+  if(checkDayRollover(away)) render(true);
+  noteActive();
   if(syncUser && Date.now()-lastSyncMs>30000) fullSync(false);
 }
+noteActive();
 document.addEventListener('visibilitychange', function(){
-  if(document.visibilityState==='visible') handleResume();
+  if(document.visibilityState==='visible') handleResume(); else noteActive();
 });
 window.addEventListener('pageshow', handleResume);   // återställd från bakåt-/bfcache
 window.addEventListener('online', function(){ if(syncUser){ clearTimeout(syncTimer); fullSync(false); } }); // nätet tillbaka → synka direkt
 window.addEventListener('focus', function(){ if(checkDayRollover()) render(true); });
-setInterval(function(){ if(checkDayRollover()) render(true); }, 60000); // dygnsbyte med appen öppen
+setInterval(function(){ noteActive(); if(checkDayRollover(0)) render(true); }, 60000); // dygnsbyte med appen öppen
 /* Pekskärm: bottennaven flyter ovanpå tangentbordet och skymmer fältet man skriver i — göm den
    medan ett fält har fokus. Liten fördröjning så att hopp mellan två fält inte blinkar. */
 (function(){
