@@ -14,23 +14,32 @@ Android/Chrome: meny → "Installera app" · iPhone/Safari: Dela → "Lägg till
 
 ## Funktioner
 
-- **Idag** – logga måltider per måltidstyp, se dagens kcal/protein mot dina mål.
-  - **AI-uppskattning** av kcal/protein från fritext (kräver egen Anthropic API-nyckel, sparas bara lokalt).
+- **Idag** – logga måltider per måltidstyp, se dagens kcal/protein mot dina mål. Dagens måltider
+  ligger direkt under lägg till-kortet.
+  - **AI-uppskattning** av kcal/protein från fritext — eller från ett **foto** av maten (📷 Foto:
+    AI:n föreslår beskrivning, kcal och protein). Kräver egen Anthropic API-nyckel, sparas bara lokalt.
+    Fotot krymps i telefonen innan det skickas och sparas ingenstans.
   - **Snabbval** av tidigare loggade måltider, med **favoriter** (★) som alltid ligger kvar —
     stjärnmärk t.ex. restaurangrätter du ofta äter.
+  - **Sök bland allt du ätit** – sökrutan i Snabbval letar i hela historiken, även bland ingredienser
+    ("kvarg" hittar frukostskålen kvargen ingick i), och lägger till träffen med ett tryck.
   - **Kopiera från en annan dag** – hämta gårdagens lunch, hela gårdagen, samma dag förra veckan
     eller valfri dag med ett tryck.
   - **Bygg från skafferiet** – välj livsmedel + mängd, appen räknar ut och summerar flera ingredienser till en måltid.
   - Välj inmatningsmetod per måltid: **AI ✨ / Skafferi / Manuellt** — bara den valda metodens
     verktyg visas, så kortet hålls rent.
-  - Redigera eller ta bort loggade måltider.
+  - Redigera eller ta bort loggade måltider. Borttagningar och tillägg kan **ångras** direkt i
+    notisen (i stället för "Är du säker?"-rutor) — fångar också ett råkat dubbeltryck på ett snabbval.
 - **Kropp** – registrera vikt och midjemått, se grafer med glidande medel.
 - **Trender** – veckoöversikt (mån–sön med dagens dag markerad) samt snitt och utveckling
-  över 7 / 30 / 90 dagar.
+  över 7 / 30 / 90 dagar, och **målträff**: hur många av de loggade dagarna protein- och energimålet
+  nåtts, plus hur många dagar i rad du nått proteinmålet.
 - På mobilen byter du dag genom att **svepa** vänster/höger på Idag-fliken. Snabbval- och
   kopiera-korten går att fälla ihop, och dagens totalsumma visas under måltidslistan.
-  Tal kan skrivas med **komma eller punkt** (1,5 och 1.5 betyder samma sak). Tema, vald
-  inmatningsmetod och ihopfällda kort är **per enhet** och synkas inte.
+  Tal kan skrivas med **komma eller punkt** (1,5 och 1.5 betyder samma sak); felskrivna tal
+  ("6OO" med bokstaven O) stoppas med besked. Tema, vald inmatningsmetod, AI-modell och
+  ihopfällda kort är **per enhet** och synkas inte — att ändra dem räknas inte som en ändring
+  av målen, så de kan aldrig skriva över nyare mål från en annan enhet.
 - **Mål** – dagliga kcal-/proteinmål och kroppsmål (mållinjer i graferna). Valfri **hyllning med
   ljud** när dagens proteinmål nås (kan slås av/på).
 - **Skafferi** – eget livsmedelsbibliotek med näringsvärden per 100 g / 100 ml / styck. Förfyllt med

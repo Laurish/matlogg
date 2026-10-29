@@ -162,6 +162,16 @@
   .toast.show{opacity:1; transform:translateX(-50%) translateY(0);}
   .toast.err{background:var(--error);}
   .toast.warn{background:var(--amber);}
+  /* notis med "Ångra": går att trycka på medan den syns */
+  .toast.has-action{pointer-events:auto; display:flex; align-items:center; justify-content:center; gap:14px;}
+  .toast-undo{background:none; border:0; padding:4px 2px; color:inherit; font:inherit; font-weight:700;
+              text-decoration:underline; cursor:pointer; white-space:nowrap;}
+  /* sök bland tidigare måltider (i snabbvalskortet) */
+  .search-wrap{margin-bottom:10px;}
+  .search-results .copy-row{padding:9px 0;}
+  .search-meta{display:block; font-size:11px; color:var(--muted); margin-top:1px;}
+  .ai-actions{display:flex; gap:8px; margin-top:10px;}
+  .goal-stat{display:flex; justify-content:space-between; align-items:baseline; gap:8px; font-size:14px; margin-top:12px;}
   .edit-row{display:flex; flex-direction:column; gap:8px; padding:12px 16px; border-top:1px solid var(--border);}
   .edit-row .grid2{gap:8px;}
   .edit-actions{display:flex; gap:8px;}
@@ -288,7 +298,8 @@ const sparkleSVG = '<svg aria-hidden="true" focusable="false" width="16" height=
 const pencilSVG = '<svg aria-hidden="true" focusable="false" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>';
 const starSVG = '<svg aria-hidden="true" focusable="false" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26"/></svg>';
 const starFillSVG = '<svg aria-hidden="true" focusable="false" width="15" height="15" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26"/></svg>';
-const chevSVG = '<svg aria-hidden="true" focusable="false" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>';
+const cameraSVG = '<svg aria-hidden="true" focusable="false" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>';
+const chevSVG ='<svg aria-hidden="true" focusable="false" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>';
 
 /* ---------- AI ---------- */
 const MODELS = [
@@ -329,13 +340,22 @@ const DEFAULT_FOODS = [
 
 /* ---------- lagring (sparas på din dator) ---------- */
 const LS = { meals:'matlogg.meals', body:'matlogg.body', settings:'matlogg.settings', apikey:'matlogg.apikey', aimodel:'matlogg.aimodel', foods:'matlogg.foods', favorites:'matlogg.favorites', tombstones:'matlogg.tombstones', draft:'matlogg.draft', lastExport:'matlogg.lastExport', lastSync:'matlogg.lastSync', lastActive:'matlogg.lastActive' };
-// nycklar som ingår i moln-synken (AI-nyckeln OCH utkastet medvetet INTE med)
-const SYNC_KEYS = {}; [LS.meals, LS.body, LS.settings, LS.foods, LS.favorites, LS.aimodel, LS.tombstones].forEach(function(k){ SYNC_KEYS[k]=1; });
+// nycklar som ingår i moln-synken (AI-nyckeln, modellvalet OCH utkastet medvetet INTE med —
+// nyckeln finns bara på enheten där den klistrats in, så modellen hör till samma enhet)
+const SYNC_KEYS = {}; [LS.meals, LS.body, LS.settings, LS.foods, LS.favorites, LS.tombstones].forEach(function(k){ SYNC_KEYS[k]=1; });
 function load(k, fb){ try{ const v=localStorage.getItem(k); return v?JSON.parse(v):fb; }catch(e){ return fb; } }
+/* settings rymmer både kontots inställningar (mål m.m.) och enhetens egna (DEVICE_PREFS). Bara de
+   förra räknas som en ändring i synken — annars vann en enhets gamla mål över nyare bara för att man
+   bytt tema eller fällt ihop ett kort där, och en ny enhet kunde tömma målen på alla enheter. */
+function accountSettingsKey(s){
+  return JSON.stringify(Object.keys(s||{}).filter(function(k){ return k!=='up' && DEVICE_PREFS.indexOf(k)<0; }).sort()
+    .map(function(k){ return [k, s[k]]; }));
+}
 function save(k, v){
   try{
-    // settings får en tidsstämpel vid varje användarändring så "nyast vinner" i synken
-    if(k===LS.settings && !syncSuppress && v && typeof v==='object') v.up = Date.now();
+    // settings får en tidsstämpel när kontots del ändras så "nyast vinner" i synken
+    if(k===LS.settings && !syncSuppress && v && typeof v==='object'
+       && accountSettingsKey(v) !== accountSettingsKey(load(LS.settings, null) || DEFAULT_SETTINGS)) v.up = Date.now(); // ny enhet: inget sparat än = standardvärdena
     localStorage.setItem(k, JSON.stringify(v));
     if(SYNC_KEYS[k] && !syncSuppress) scheduleSync();
   }
@@ -345,7 +365,8 @@ function uid(){ return Date.now()+'-'+Math.random().toString(36).slice(2,8); }
 
 let meals = load(LS.meals, {});
 let body  = load(LS.body, []);
-let settings = load(LS.settings, { kcalGoal:'', proteinGoal:'', targetWeight:'', targetWaist:'', celebrateProtein:true, celebrateSound:true, theme:'auto' });
+const DEFAULT_SETTINGS = { kcalGoal:'', proteinGoal:'', targetWeight:'', targetWaist:'', celebrateProtein:true, celebrateSound:true, theme:'auto' };
+let settings = load(LS.settings, null) || Object.assign({}, DEFAULT_SETTINGS);
 /* inställningar som hör till ENHETEN, inte kontot: tema, inmatningsmetod och ihopfällda kort.
    Ligger kvar i settings (bakåtkompatibelt) men skrivs aldrig över av molnet — annars fick
    telefonen "AI"-läge från datorn fast AI-nyckeln bara finns där. */
@@ -362,7 +383,8 @@ function applyTheme(){
 }
 if(darkMQ && darkMQ.addEventListener) darkMQ.addEventListener('change', function(){ if((settings.theme||'auto')==='auto') applyTheme(); });
 applyTheme();
-let foods = load(LS.foods, DEFAULT_FOODS);
+// egen kopia: nya/ändrade livsmedel får aldrig hamna i själva standardlistan ("Återställ" ska ge originalet)
+let foods = load(LS.foods, null) || DEFAULT_FOODS.map(function(f){ return Object.assign({}, f); });
 let apiKey = load(LS.apikey, '');
 let aiModel = load(LS.aimodel, DEFAULT_MODEL);
 let aiEditing = false;
@@ -376,11 +398,14 @@ let manualParts = [];   // transient: delar i manuell/AI-inmatning som blir EN m
 let editingMealId = null; // id på måltid som redigeras inline
 let editItems = null;   // arbetskopia av ingredienser (items) medan en måltid redigeras
 let editParts = null;   // arbetskopia av delar (parts) medan en måltid redigeras
+let editType = null;    // vald måltidstyp medan en måltid redigeras — i tillståndet, så en synk-omritning inte nollställer den
 let foodFilter = ''; // sökfilter i skafferiet
 let editingFoodId = null; // id på livsmedel som redigeras inline i Skafferi
 let favorites = load(LS.favorites, []); // stjärnmärkta rätter: {id, desc, kcal, protein, ev. items/parts}
 let copySource = null; // vald källdag i "kopiera från annan dag" (null = dagen innan)
 let quickList = []; // snabbvals-poster i renderad ordning (favoriter + senaste), refereras via data-qi
+let quickFilter = ''; // sökningen i snabbvalskortet
+let searchList = [];  // sökträffar i renderad ordning, refereras via data-si
 /* raderingslogg ("tombstones"): {nyckel: raderingstid-ms} per samling — gör att raderingar
    synkas som raderingar mellan enheter istället för att gamla kopior återuppstår */
 let tombstones = load(LS.tombstones, { meals:{}, body:{}, foods:{}, favorites:{} });
@@ -484,7 +509,7 @@ function applyPendingDraftFields(){
 const SUPABASE_URL = 'https://schgcawfirvzlemwdoqf.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNjaGdjYXdmaXJ2emxlbXdkb3FmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgwMDIyMzcsImV4cCI6MjA5MzU3ODIzN30.6HYHPlZF3gXlFoR30qVJjJ6-zVYyKEv8P-MTrNBOjYo';
 const SYNC_TABLE = 'matlogg_state';
-const APP_VERSION = 17; // håll i takt med CACHE_VERSION i sw.js
+const APP_VERSION = 18; // håll i takt med CACHE_VERSION i sw.js
 
 let sb = null;              // supabase-klient
 let syncUser = null;        // inloggad användare (null = utloggad)
@@ -506,7 +531,7 @@ function syncStatusMsg(msg, isErr){
 
 function collectState(){
   return { schema: 2, meals: meals, body: body, settings: settings, foods: foods,
-           favorites: favorites, aimodel: aiModel, tombstones: tombstones };
+           favorites: favorites, tombstones: tombstones };
 }
 
 function initSync(){
@@ -532,7 +557,7 @@ function initSync(){
 function tombOf(col, key){ return (tombstones[col]||{})[key] || 0; }
 function mergeSynced(inc){
   inc = inc || {};
-  const before = JSON.stringify([meals, body, foods, favorites, settings, aiModel]);
+  const before = JSON.stringify([meals, body, foods, favorites, settings]);
   // 1) slå ihop raderingsloggarna (senaste raderingstid vinner)
   const incT = inc.tombstones || {};
   ['meals','body','foods','favorites'].forEach(function(col){
@@ -592,12 +617,12 @@ function mergeSynced(inc){
     });
   }
   favorites = favorites.filter(function(f){ return tombOf('favorites', favKey(f.desc)) <= (f.up||0); });
-  // 6) inställningar + AI-modell: nyaste settings-versionen vinner i sin helhet
+  // 6) inställningar: nyaste settings-versionen vinner i sin helhet (utom enhetens egna val).
+  //    AI-modellen följer inte med — den hör till enheten, precis som nyckeln (äldre versioner skickar den ändå)
   if(inc.settings && typeof inc.settings==='object' && (inc.settings.up||0) > (settings.up||0)){
     const incoming = Object.assign({}, inc.settings);
     DEVICE_PREFS.forEach(function(k){ delete incoming[k]; });
     settings = Object.assign({}, settings, incoming);
-    if(inc.aimodel) aiModel = inc.aimodel;
     applyTheme();
   }
   // 7) städa raderingsloggen (äldre än 90 dagar behövs inte längre)
@@ -607,9 +632,9 @@ function mergeSynced(inc){
   });
   save(LS.meals, meals); save(LS.body, body); save(LS.foods, foods);
   save(LS.favorites, favorites); save(LS.settings, settings);
-  save(LS.aimodel, aiModel); save(LS.tombstones, tombstones);
+  save(LS.tombstones, tombstones);
   // returnera om något faktiskt ändrades (så synken kan avstå från onödig omritning)
-  return JSON.stringify([meals, body, foods, favorites, settings, aiModel]) !== before;
+  return JSON.stringify([meals, body, foods, favorites, settings]) !== before;
 }
 
 /* ---- säker läs-slå ihop-skriv-cykel: hämta alltid molnet först, skriv bara om ingen hann före ---- */
@@ -714,18 +739,55 @@ function syncSignOut(){
 
 /* ---------- liten toast (notiser) ---------- */
 let toastTimer = null;
-function toast(msg, isErr){ // isErr: true = röd, 'warn' = gul och längre
+let toastUndo = null;
+// isErr: true = röd, 'warn' = gul och längre · undo: funktion → notisen får en "Ångra"-knapp och ligger kvar längre
+function toast(msg, isErr, undo){
   let el = document.getElementById('toast');
   if(!el){ el = document.createElement('div'); el.id='toast'; el.className='toast'; el.setAttribute('role','status'); document.body.appendChild(el); }
   const kind = isErr==='warn' ? ' warn' : isErr ? ' err' : '';
-  el.textContent = msg; el.className = 'toast show'+kind;
+  el.textContent = msg;
+  toastUndo = typeof undo==='function' ? undo : null;
+  if(toastUndo){
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'toast-undo'; b.textContent = 'Ångra';
+    b.onclick = function(){
+      const fn = toastUndo; toastUndo = null;
+      clearTimeout(toastTimer); el.className = 'toast'+kind;
+      if(fn) fn();
+    };
+    el.appendChild(b);
+  }
+  el.className = 'toast show'+kind+(toastUndo ? ' has-action' : '');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(function(){ el.className = 'toast'+kind; }, isErr==='warn' ? 5000 : 3200);
+  toastTimer = setTimeout(function(){ el.className = 'toast'+kind; toastUndo = null; },
+    toastUndo ? 6000 : isErr==='warn' ? 5000 : 3200);
 }
-/* kvittens efter tillägg: på en annan dag än idag blir den gul och tydlig — där upptäcks felen */
-function addedToast(msg){
-  if(day===todayStr()) toast(msg);
-  else toast(msg+' — OBS: inte idag', 'warn');
+/* kvittens efter tillägg: på en annan dag än idag blir den gul och tydlig — där upptäcks felen.
+   ids = de nya måltidernas id, så att "Ångra" kan ta bort just dem (t.ex. ett dubbeltryck på ett snabbval) */
+function addedToast(msg, ids){
+  const d = day;
+  const undo = (ids && ids.length) ? function(){ undoAdded(d, ids); } : null;
+  if(d===todayStr()) toast(msg, false, undo);
+  else toast(msg+' — OBS: inte idag', 'warn', undo);
+}
+
+/* ---------- ångra ----------
+   Det som ångras får en ny tidsstämpel (up) — då vinner det över raderingsloggen även på
+   andra enheter som redan hunnit synka raderingen. */
+function undoAdded(d, ids){
+  const gone = {}; ids.forEach(function(id){ gone[id] = 1; markDeleted('meals', id); });
+  meals[d] = (meals[d]||[]).filter(function(e){ return !gone[e.id]; });
+  save(LS.meals, meals); render(true);
+  toast(ids.length>1 ? 'Ångrat — '+ids.length+' måltider borttagna.' : 'Ångrat — måltiden togs bort.');
+}
+function restoreMeals(d, entries, at){
+  const now = Date.now(), ids = {};
+  entries.forEach(function(e){ ids[e.id] = 1; delete tombstones.meals[e.id]; });
+  save(LS.tombstones, tombstones);
+  const arr = (meals[d]||[]).filter(function(e){ return !ids[e.id]; });
+  const back = entries.map(function(e){ return Object.assign({}, e, { up: now }); });
+  Array.prototype.splice.apply(arr, [Math.min(Math.max(0, at), arr.length), 0].concat(back));
+  meals[d] = arr; save(LS.meals, meals); render(true);
 }
 
 /* ---------- firande när proteinmålet nås ---------- */
@@ -866,6 +928,36 @@ function recentMeals(limit){
   }
   return out;
 }
+/* sök i hela historiken. Samma rätt (beskrivning) visas en gång, med värdena från senaste gången,
+   och träffar även på ingredienser och delar — "kvarg" hittar "Frukostskål" om kvarg ingick. */
+function searchMeals(query, limit){
+  const q = (query||'').trim().toLowerCase(); if(!q) return [];
+  limit = limit||30;
+  const has = function(s){ return (s||'').toLowerCase().indexOf(q) >= 0; };
+  const matches = function(e){
+    return has(e.desc) || (e.items||[]).some(function(it){ return has(it.name); })
+                       || (e.parts||[]).some(function(p){ return has(p.desc); });
+  };
+  const byKey = {}, out = [];
+  Object.keys(meals).sort().reverse().forEach(function(d){
+    (meals[d]||[]).slice().reverse().forEach(function(e){
+      const key = favKey(e.desc); if(!key || !matches(e)) return;
+      if(byKey[key]){ byKey[key].count++; return; }
+      byKey[key] = { desc:e.desc, kcal:e.kcal, protein:e.protein, items:e.items, parts:e.parts, last:d, count:1 };
+      out.push(byKey[key]);
+    });
+  });
+  favorites.forEach(function(f){ // favoriter som aldrig loggats syns också
+    const key = favKey(f.desc);
+    if(key && !byKey[key] && matches(f)){ byKey[key] = { desc:f.desc, kcal:f.kcal, protein:f.protein, items:f.items, parts:f.parts, last:null, count:0 }; out.push(byKey[key]); }
+  });
+  return out.slice(0, limit);
+}
+function shortDate(iso){
+  const d = new Date(iso+'T12:00:00');
+  const o = { day:'numeric', month:'short' }; if(d.getFullYear()!==new Date().getFullYear()) o.year = 'numeric';
+  try{ return d.toLocaleDateString('sv-SE', o); }catch(e){ return iso; }
+}
 function trendSeries(days){
   const arr=[]; const today=new Date();
   for(let i=days-1;i>=0;i--){
@@ -914,9 +1006,36 @@ function barChartSVG(data, key, color, goal, unit){
 }
 
 /* ---------- AI-uppskattning (egen API-nyckel, anrop direkt från webbläsaren) ---------- */
+const kcalPrompt = function(what){
+  return 'Uppskatta totala kalorier (kcal) och protein i gram för '+what+'. '
+    +'Utgå från typiska näringsvärden per 100 g för varje ingrediens och skala till den angivna mängden. ';
+};
 async function estimateMacros(description, key){
+  const p = await askClaudeJSON(
+    'Du är en noggrann näringsberäknare. '+kcalPrompt('"'+description+'"')
+    +'Om ett antal portioner anges, dela slutsumman på det antalet och svara per portion. '
+    +'Om en mängd saknas, anta en normal portion. '
+    +'Svara ENDAST med ren JSON, ingen markdown, inga förklaringar: {"kcal": tal, "protein": tal}', key, 25000);
+  return { kcal: Math.max(0,Math.round(Number(p.kcal)||0)), protein: Math.max(0,Math.round(Number(p.protein)||0)) };
+}
+/* foto av maten → beskrivning + kcal + protein. hint = det som ev. redan står i beskrivningen */
+async function estimatePhoto(jpegBase64, hint, key){
+  const p = await askClaudeJSON([
+    { type:'image', source:{ type:'base64', media_type:'image/jpeg', data: jpegBase64 } },
+    { type:'text', text: 'Du är en noggrann näringsberäknare. Bilden visar en måltid.'
+      + (hint ? ' Användaren beskriver den så här: "'+hint+'".' : '')
+      + ' Identifiera maten och bedöm portionsstorleken utifrån tallriken, besticken och annat i bilden. '
+      + kcalPrompt('det som syns i bilden')
+      + 'Svara ENDAST med ren JSON, ingen markdown, inga förklaringar: '
+      + '{"desc": "kort beskrivning på svenska, högst 60 tecken", "kcal": tal, "protein": tal}' }
+  ], key, 45000);
+  return { desc: String(p.desc||'').trim().slice(0, 80),
+           kcal: Math.max(0,Math.round(Number(p.kcal)||0)), protein: Math.max(0,Math.round(Number(p.protein)||0)) };
+}
+/* ett anrop till Claude som ska svara med ren JSON — delas av text- och fotouppskattningen */
+async function askClaudeJSON(content, key, timeoutMs){
   const ctrl = new AbortController();
-  const timer = setTimeout(function(){ ctrl.abort(); }, 25000);
+  const timer = setTimeout(function(){ ctrl.abort(); }, timeoutMs);
   let response;
   try{
     response = await fetch("https://api.anthropic.com/v1/messages", {
@@ -932,12 +1051,7 @@ async function estimateMacros(description, key){
       model: aiModel,
       max_tokens: 2000,                      // tänkandet räknas in i taket — 400 kunde klippa svaret
       output_config: { effort: 'low' },      // kort tänkande räcker för en näringsuppskattning och håller priset nere
-      messages:[{ role:"user", content:
-        'Du är en noggrann näringsberäknare. Uppskatta totala kalorier (kcal) och protein i gram för: "'+description+'". '
-        +'Utgå från typiska näringsvärden per 100 g för varje ingrediens och skala till den angivna mängden. '
-        +'Om ett antal portioner anges, dela slutsumman på det antalet och svara per portion. '
-        +'Om en mängd saknas, anta en normal portion. '
-        +'Svara ENDAST med ren JSON, ingen markdown, inga förklaringar: {"kcal": tal, "protein": tal}' }]
+      messages:[{ role:"user", content: content }]
     })
   });
   }catch(err){
@@ -952,15 +1066,60 @@ async function estimateMacros(description, key){
     throw new Error(msg);
   }
   const data = await response.json();
+  if(data.stop_reason==='refusal') throw new Error('AI:n ville inte svara på den här');
   const text = (data.content||[]).map(i=>i.type==='text'?i.text:'').join('').replace(/```json|```/g,'').trim();
   let parsed;
   try{ parsed = JSON.parse(text); }
   catch(e){ // modellen la till en förklaring runt JSON:en — plocka ut objektet
     const m = text.match(/\{[\s\S]*\}/);
-    if(!m) throw new Error('oväntat svar från AI:n');
+    if(!m) throw new Error(data.stop_reason==='max_tokens' ? 'svaret blev för långt' : 'oväntat svar från AI:n');
     parsed = JSON.parse(m[0]);
   }
-  return { kcal: Math.max(0,Math.round(Number(parsed.kcal)||0)), protein: Math.max(0,Math.round(Number(parsed.protein)||0)) };
+  return parsed || {};
+}
+
+/* fotot krymps i telefonen innan det skickas: snabbare på mobilnät och billigare (bildens storlek styr priset) */
+function imageToJpegBase64(file, maxSide){
+  maxSide = maxSide || 1024;
+  return new Promise(function(resolve, reject){
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = function(){
+      try{
+        const s = Math.min(1, maxSide / Math.max(img.naturalWidth, img.naturalHeight));
+        const c = document.createElement('canvas');
+        c.width = Math.max(1, Math.round(img.naturalWidth*s)); c.height = Math.max(1, Math.round(img.naturalHeight*s));
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        resolve(c.toDataURL('image/jpeg', 0.82).split(',')[1]);
+      }catch(e){ reject(e); }
+      finally{ URL.revokeObjectURL(url); }
+    };
+    img.onerror = function(){ URL.revokeObjectURL(url); reject(new Error('kunde inte läsa bilden')); };
+    img.src = url;
+  });
+}
+async function runPhotoEstimate(file){
+  if(!file || !apiKey) return;
+  const btn=$('#ai-photo'), status=$('#ai-status');
+  const hint = ($('#m-desc') && $('#m-desc').value || '').trim();
+  const oldHTML = btn ? btn.innerHTML : '';
+  if(btn){ btn.disabled=true; btn.textContent='Tittar…'; }
+  if(status){ status.style.color='var(--muted)'; status.textContent='Skickar bilden till AI:n…'; }
+  try{
+    const r = await estimatePhoto(await imageToJpegBase64(file), hint, apiKey);
+    // läs fälten först nu — en omritning under väntan kan ha bytt ut dem
+    const d = $('#m-desc'); if(d && !d.value.trim() && r.desc) d.value = r.desc;
+    if($('#m-kcal')) $('#m-kcal').value = r.kcal;
+    if($('#m-protein')) $('#m-protein').value = r.protein;
+    saveDraft();
+    const st = $('#ai-status');
+    if(st){ st.style.color='var(--green)'; st.textContent='Uppskattat från bilden ✓ — kolla beskrivning och värden innan du lägger till.'; }
+  }catch(err){
+    const st = $('#ai-status');
+    if(st){ st.style.color='var(--error)'; st.textContent='Kunde inte uppskatta bilden: '+((err&&err.message)||'okänt fel')+'. Fyll i manuellt.'; }
+  }finally{
+    if(btn){ btn.disabled=false; btn.innerHTML = oldHTML; }
+  }
 }
 
 async function runEstimate(){
@@ -975,6 +1134,7 @@ async function runEstimate(){
     const r = await estimateMacros(desc, apiKey);
     if($('#m-kcal')) $('#m-kcal').value = r.kcal;
     if($('#m-protein')) $('#m-protein').value = r.protein;
+    saveDraft(); // uppskattningen ska överleva om mobilen dödar appen innan man hunnit lägga till
     if(status){ status.style.color='var(--green)'; status.textContent='Uppskattat ✓ — justera vid behov.'; }
   }catch(err){
     if(status){ status.style.color='var(--error)'; status.textContent='Kunde inte uppskatta: '+((err&&err.message)||'okänt fel')+'. Fyll i manuellt.'; }
@@ -1097,8 +1257,9 @@ function render(preserveForm){
 
 function mealRowHTML(e){
   if(editingMealId===e.id){
+    const curType = editType || e.type;
     const head = '<div class="pills" style="margin-bottom:0" role="radiogroup" aria-label="Måltidstyp">'
-      +   MEAL_TYPES.map(function(m){ return '<button class="pill'+(e.type===m.id?' active':'')+'" data-etype="'+m.id+'" role="radio" aria-checked="'+(e.type===m.id)+'">'+mealTypeTag(m)+'</button>'; }).join('')
+      +   MEAL_TYPES.map(function(m){ return '<button class="pill'+(curType===m.id?' active':'')+'" data-etype="'+m.id+'" role="radio" aria-checked="'+(curType===m.id)+'">'+mealTypeTag(m)+'</button>'; }).join('')
       + '</div>'
       + '<input id="edit-desc" type="text" value="'+escapeHTML(e.desc)+'" aria-label="Beskrivning">';
     const body = (editItems || editParts)
@@ -1334,23 +1495,15 @@ function todayHTML(){
     : '';
   const empty = (meals[day]||[]).length===0 ? '<div class="card empty">Inga måltider loggade än. Lägg till din första ovan.</div>' : '';
 
-  const favsSorted = favorites.slice().sort(function(a,b){ return a.desc.localeCompare(b.desc,'sv'); });
-  const recent = recentMeals(Math.max(4, 12-favsSorted.length));
-  quickList = favsSorted.concat(recent); // samma ordning som chipsen renderas; quick-handlern slår upp via index
-  function chipHTML(r, star, qi){
-    return '<button class="chip" data-act="quick" data-qi="'+qi+'" title="'+escapeHTML(r.desc)+'">'
-      + (star?'<span class="chip-star" aria-hidden="true">★</span>':'')
-      + '<span class="chip-desc">'+escapeHTML(r.desc)+'</span><span class="chip-macros">'+r.kcal+'·'+r.protein+'g</span></button>';
-  }
   const quickClosed = !!settings.collapseQuick;
-  const quickCard = (favsSorted.length || recent.length) ? '<div class="card quick-card">'
+  const quickCard = (favorites.length || recentMeals(1).length) ? '<div class="card quick-card">'
     + '<button class="quick-head collapse-head'+(quickClosed?' closed':'')+'" data-act="toggle-quick" aria-expanded="'+(!quickClosed)+'" style="margin-bottom:'+(quickClosed?'0':'10px')+'">'
     +   '<span>Snabbval <span class="muted" style="font-weight:400">· ★ = favorit · läggs till i <span id="quick-target">'+mealTypeLabel(mealType)+'</span></span></span>'
     +   '<span class="chev">'+chevSVG+'</span></button>'
-    + (quickClosed ? '' : '<div class="chips">'
-      + favsSorted.map(function(r,i){ return chipHTML(r, true, i); }).join('')
-      + recent.map(function(r,i){ return chipHTML(r, false, favsSorted.length + i); }).join('')
-      + '</div>')
+    + (quickClosed ? '' :
+        '<div class="search-wrap"><input type="search" id="q-search" placeholder="Sök bland allt du ätit…" autocomplete="off"'
+      +   ' value="'+escapeHTML(quickFilter)+'" aria-label="Sök bland måltider du ätit tidigare"></div>'
+      + '<div id="q-results">'+quickResultsHTML()+'</div>')
     + '</div>' : '';
 
   const pills = MEAL_TYPES.map(m=>'<button class="pill'+(mealType===m.id?' active':'')+'" data-type="'+m.id+'">'+mealTypeTag(m)+'</button>').join('');
@@ -1359,7 +1512,7 @@ function todayHTML(){
   const descHint =
       method==='skafferi' ? 'Beskrivningen är valfri — lämnar du den tom namnges måltiden efter raderna nedan.'
     : method==='manuell'  ? 'Fyll i kcal och protein nedan.'
-    : (apiKey && !aiEditing) ? 'Tryck på AI-knappen, eller skriv in värdena själv.'
+    : (apiKey && !aiEditing) ? 'Tryck på AI-knappen, fota maten, eller skriv in värdena själv.'
     : 'Klistra in en API-nyckel nedan för att aktivera AI-uppskattning.';
 
   const methodRow = '<div class="method-row" role="radiogroup" aria-label="Sätt att fylla i näringsvärden">'
@@ -1372,7 +1525,11 @@ function todayHTML(){
         + '<select id="ai-model" class="ai-select">'
         + MODELS.map(m=>'<option value="'+m.id+'"'+(aiModel===m.id?' selected':'')+'>'+m.label+'</option>').join('')
         + '</select></div>'
-      + '<button class="btn ai-btn" id="ai-est" style="margin-top:10px">'+sparkleSVG+' Uppskatta med AI</button>'
+      + '<div class="ai-actions">'
+      +   '<button class="btn ai-btn" id="ai-est" style="flex:1">'+sparkleSVG+' Uppskatta med AI</button>'
+      +   '<button class="btn ai-btn" id="ai-photo" style="width:auto;white-space:nowrap" title="Fota maten — AI:n uppskattar från bilden">'+cameraSVG+' Foto</button>'
+      + '</div>'
+      + '<input type="file" id="ai-photo-file" accept="image/*" style="display:none">'
       + '<div class="ai-status" id="ai-status"></div>'
       + '<div style="text-align:right;margin-top:6px"><button class="linkbtn" data-act="ai-edit">AI på · ändra nyckel</button></div>'
     : '<div class="ai-box">'
@@ -1438,9 +1595,46 @@ function todayHTML(){
         + (manualParts.length ? '' : '<div class="hint" style="margin-top:6px">Tips: bygger du en måltid av flera saker — fyll i en i taget och tryck <strong>+ Del</strong>, så hamnar allt på en rad.</div>')
       : '<button class="btn btn-primary" id="m-add" style="margin-top:12px">'+plusSVG+' Lägg till måltid</button>')
   + '</div>'
+  // dagens måltider direkt under lägg till-kortet — på mobilen fick man förut scrolla förbi snabbval och kopiera
+  + (empty || (groups + totalRow))
   + quickCard
-  + copyCardHTML()
-  + (empty || (groups + totalRow));
+  + copyCardHTML();
+}
+
+/* snabbvalskortets innehåll: chips (favoriter + senaste) — eller sökträffar när något står i sökrutan */
+function quickResultsHTML(){
+  if(quickFilter.trim()) return searchResultsHTML();
+  const favsSorted = favorites.slice().sort(function(a,b){ return a.desc.localeCompare(b.desc,'sv'); });
+  const recent = recentMeals(Math.max(4, 12-favsSorted.length));
+  quickList = favsSorted.concat(recent); // samma ordning som chipsen renderas; quick-handlern slår upp via index
+  function chipHTML(r, star, qi){
+    return '<button class="chip" data-act="quick" data-qi="'+qi+'" title="'+escapeHTML(r.desc)+'">'
+      + (star?'<span class="chip-star" aria-hidden="true">★</span>':'')
+      + '<span class="chip-desc">'+escapeHTML(r.desc)+'</span><span class="chip-macros">'+r.kcal+'·'+r.protein+'g</span></button>';
+  }
+  return '<div class="chips">'
+    + favsSorted.map(function(r,i){ return chipHTML(r, true, i); }).join('')
+    + recent.map(function(r,i){ return chipHTML(r, false, favsSorted.length + i); }).join('')
+    + '</div>';
+}
+function searchResultsHTML(){
+  const LIMIT = 30;
+  const q = quickFilter.trim();
+  searchList = searchMeals(q, LIMIT+1);
+  const more = searchList.length > LIMIT; if(more) searchList = searchList.slice(0, LIMIT);
+  if(!searchList.length) return '<div class="hint" style="margin-top:0">Inget du ätit matchar ”'+escapeHTML(q)+'”.</div>';
+  const today = todayStr();
+  return '<div class="search-results">'
+    + searchList.map(function(r,i){
+        const meta = r.last ? 'senast '+(r.last===today ? 'idag' : shortDate(r.last))+(r.count>1 ? ' · '+r.count+' gånger' : '') : 'favorit';
+        return '<button class="copy-row" data-act="search-add" data-si="'+i+'" title="Lägg till i '+mealTypeLabel(mealType)+'">'
+          + '<span class="copy-desc">'+(isFavorite(r.desc)?'<span class="chip-star" aria-hidden="true">★</span> ':'')+escapeHTML(r.desc)
+          +   '<span class="search-meta">'+meta+'</span></span>'
+          + '<span class="row-macros"><span class="amber">'+r.kcal+'</span><span class="dot">·</span><span class="green">'+r.protein+'g</span></span>'
+          + '<span class="plus">'+plusSVG+'</span></button>';
+      }).join('')
+    + '</div>'
+    + (more ? '<div class="hint">Visar de '+LIMIT+' senaste träffarna — skriv mer för att smalna av.</div>' : '');
 }
 
 function bodyHTML(){
@@ -1553,6 +1747,8 @@ function trendsHTML(){
   const weightChart = wData.length ? '<div class="card chart-pad"><div class="chart-title">Vikt (kg)</div>'+lineChartSVG(wData,'weight','var(--blue)',wData.length>=5,parseNum(settings.targetWeight)||0)+'</div>' : '';
   const waistChart = waData.length ? '<div class="card chart-pad"><div class="chart-title">Mage (cm)</div>'+lineChartSVG(waData,'waist','var(--green)',false,parseNum(settings.targetWaist)||0)+'</div>' : '';
 
+  const goalCard = goalStatsHTML(series, kGoal, pGoal);
+
   const anyData = loggedDays.length>0 || wData.length>0 || waData.length>0;
   const emptyState = anyData ? '' : '<div class="card empty">Logga måltider och mätningar några dagar så dyker trenderna upp här.</div>';
 
@@ -1561,7 +1757,41 @@ function trendsHTML(){
     + (kGoal>0 ? '<span class="muted" style="font-weight:400;font-size:12px">streckad linje = mål '+kGoal+'</span>' : '')
     + '</div>'+weekOverviewSVG()+'</div>' : '';
 
-  return weekCard + toggle + summary + kcalChart + protChart + weightChart + waistChart + emptyState;
+  return weekCard + toggle + summary + goalCard + kcalChart + protChart + weightChart + waistChart + emptyState;
+}
+
+/* målträff: hur ofta målen nåtts av de loggade dagarna i perioden, och pågående svit för protein.
+   Dagens datum räknas bara när det redan är avgjort — en halv dag ska varken se bra eller dålig ut. */
+function goalStatsHTML(series, kGoal, pGoal){
+  const today = todayStr();
+  const logged = series.filter(function(d){ return d.logged; });
+  if(!logged.length || !(kGoal>0 || pGoal>0)) return '';
+  function row(label, hit, of, colorVar){
+    const pct = of ? Math.round(100*hit/of) : 0;
+    return '<div class="goal-stat"><span>'+label+'</span><span class="muted"><strong style="color:var(--ink)">'+hit+'</strong> av '+of+' '+(of===1?'dag':'dagar')+'</span></div>'
+      + '<div class="bar" style="background:var(--'+colorVar+'-soft);margin-top:6px"><div class="bar-fill" style="width:'+pct+'%;background:var(--'+colorVar+')"></div></div>';
+  }
+  let rows = '', streak = '';
+  if(pGoal>0){
+    const days = logged.filter(function(d){ return d.iso!==today || d.protein>=pGoal; }); // idag räknas när målet är nått
+    if(days.length) rows += row('Proteinmålet nått', days.filter(function(d){ return d.protein>=pGoal; }).length, days.length, 'green');
+    const n = proteinStreak(pGoal);
+    if(n>=2) streak = '<div class="small" style="margin-top:12px">🔥 <strong>'+n+' dagar i rad</strong> med nått proteinmål</div>';
+    else if(n===1) streak = '<div class="small" style="margin-top:12px">Proteinmålet nått '+(totalsFor(today).protein>=pGoal?'idag':'igår')+' — en dag till så har du en svit.</div>';
+  }
+  if(kGoal>0){
+    const days = logged.filter(function(d){ return d.iso!==today; }); // dagen är inte slut — "under målet" vore för tidigt
+    if(days.length) rows += row('Inom energimålet', days.filter(function(d){ return d.kcal<=kGoal; }).length, days.length, 'amber');
+  }
+  if(!rows && !streak) return '';
+  return '<div class="card stat-pad"><div class="eyebrow muted">Målträff · loggade dagar</div>'+rows+streak+'</div>';
+}
+/* dagar i rad (bakåt från idag, eller från igår om dagens mål inte är nått än) med nått proteinmål */
+function proteinStreak(pGoal){
+  let d = todayStr(), n = 0;
+  if(totalsFor(d).protein < pGoal) d = shiftDay(d, -1);
+  while(n < 3660 && totalsFor(d).protein >= pGoal){ n++; d = shiftDay(d, -1); }
+  return n;
 }
 
 function malHTML(){
@@ -1618,7 +1848,7 @@ function syncCardHTML(){
   } else if(!window.supabase){
     inner = '<div class="hint" style="margin-top:4px">Synk-biblioteket kunde inte laddas (supabase.min.js saknas bredvid appen?).</div>';
   } else if(!syncUser){
-    inner = '<div class="hint" style="margin-top:4px;margin-bottom:10px">Logga in med samma konto på alla enheter så synkas måltider, mätningar, mål, skafferi och favoriter automatiskt. AI-nyckeln synkas aldrig.</div>'
+    inner = '<div class="hint" style="margin-top:4px;margin-bottom:10px">Logga in med samma konto på alla enheter så synkas måltider, mätningar, mål, skafferi och favoriter automatiskt. AI-nyckeln och modellvalet stannar på varje enhet.</div>'
       + '<label class="field-label" for="sy-email">E-post</label>'
       + '<input id="sy-email" type="email" autocomplete="email" placeholder="din@epost.se">'
       + '<label class="field-label" for="sy-pass" style="margin-top:8px">Lösenord</label>'
@@ -1718,15 +1948,20 @@ function wireSkafferi(){
     const b = ev.target.closest('[data-act]'); if(!b) return;
     const a = b.dataset.act;
     if(a==='food-del'){
-      if(confirm('Ta bort livsmedlet från skafferiet?')){
-        markDeleted('foods', b.dataset.id);
-        foods = foods.filter(f=>f.id!==b.dataset.id);
-        if(editingFoodId===b.dataset.id) editingFoodId=null;
-        save(LS.foods, foods); render();
-      }
+      const f = foodById(b.dataset.id); if(!f) return;
+      markDeleted('foods', f.id);
+      foods = foods.filter(x=>x.id!==f.id);
+      if(editingFoodId===f.id) editingFoodId=null;
+      save(LS.foods, foods); render();
+      toast(f.name+' borttaget ur skafferiet.', false, function(){
+        delete tombstones.foods[f.id]; save(LS.tombstones, tombstones);
+        if(!foodById(f.id)) foods.push(Object.assign({}, f, { up: Date.now() }));
+        save(LS.foods, foods); render(true); toast('Ångrat — '+f.name+' är tillbaka.');
+      });
     } else if(a==='food-edit'){ editingFoodId=b.dataset.id; render(); }
     else if(a==='food-edit-cancel'){ editingFoodId=null; render(); }
     else if(a==='food-edit-save'){
+      if(badNumberWarning($('#ef-kcal')) || badNumberWarning($('#ef-protein'))) return;
       const idx = foods.findIndex(f=>f.id===b.dataset.id);
       if(idx>=0){
         const d = readFood('ef');
@@ -1747,6 +1982,7 @@ function wireSkafferi(){
     }
   };
   if($('#food-add')) $('#food-add').onclick = function(){
+    if(badNumberWarning($('#nf-kcal')) || badNumberWarning($('#nf-protein'))) return;
     const d = readFood('nf');
     if(!d.name){ toast('Ange ett namn.', true); $('#nf-name').focus(); return; }
     foods.push(Object.assign({ id: uid(), up: Date.now() }, d));
@@ -1762,6 +1998,7 @@ function wireToday(){
     const b = ev.target.closest('[data-act],[data-type],[data-etype]'); if(!b) return;
     if(b.dataset.etype){
       // typbyte i redigeringsläget: toggla bara klasser, ingen omrendering (behåller oskrivna fältändringar)
+      editType = b.dataset.etype;
       document.querySelectorAll('.pill[data-etype]').forEach(function(p){
         const on = p.dataset.etype===b.dataset.etype;
         p.className = 'pill'+(on?' active':''); p.setAttribute('aria-checked', on?'true':'false');
@@ -1779,7 +2016,14 @@ function wireToday(){
     if(a==='prev'){ day=shiftDay(day,-1); copySource=null; render(); }
     else if(a==='next'){ if(day!==todayStr()){ day=shiftDay(day,1); copySource=null; render(); } }
     else if(a==='today'){ day=todayStr(); copySource=null; render(); }
-    else if(a==='del-meal'){ if(confirm('Ta bort den här måltiden?')){ markDeleted('meals', b.dataset.id); meals[day]=(meals[day]||[]).filter(e=>e.id!==b.dataset.id); save(LS.meals,meals); render(); } }
+    else if(a==='del-meal'){
+      // ingen "Är du säker?" — tas bort direkt, och notisen har "Ångra"
+      const d0 = day, arr = meals[d0]||[], i = arr.findIndex(e=>e.id===b.dataset.id); if(i<0) return;
+      const gone = arr[i];
+      markDeleted('meals', gone.id);
+      meals[d0] = arr.filter(e=>e.id!==gone.id); save(LS.meals, meals); render();
+      toast('Borttagen: '+gone.desc, false, function(){ restoreMeals(d0, [gone], i); toast('Ångrat — måltiden är tillbaka.'); });
+    }
     else if(a==='fav-meal'){
       const entry = (meals[day]||[]).find(e=>e.id===b.dataset.id);
       if(entry){ toggleFavorite(entry); render(); }
@@ -1795,17 +2039,20 @@ function wireToday(){
       const e = srcArr.find(x=>x.id===b.dataset.id);
       if(!e){ toast('Måltiden finns inte kvar — listan uppdaterades.', true); render(); return; }
       const prevProtein = totalsFor(day).protein;
-      meals[day] = (meals[day]||[]).concat(copyMealEntry(e));
+      const copy = copyMealEntry(e);
+      meals[day] = (meals[day]||[]).concat(copy);
       save(LS.meals, meals); maybeCelebrate(prevProtein); render();
-      addedToast('Kopierad till '+dayLabel(day)+': '+e.desc);
+      addedToast('Kopierad till '+dayLabel(day)+': '+e.desc, [copy.id]);
     }
     else if(a==='copy-day'){
       const srcArr = meals[b.dataset.src]||[];
       if(!srcArr.length){ toast('Inget loggat '+prettyDate(b.dataset.src)+' att kopiera.', true); return; }
       const prevProtein = totalsFor(day).protein;
-      meals[day] = (meals[day]||[]).concat(srcArr.map(copyMealEntry));
+      const copies = srcArr.map(copyMealEntry);
+      meals[day] = (meals[day]||[]).concat(copies);
       save(LS.meals, meals); maybeCelebrate(prevProtein); render();
-      addedToast('Kopierade '+srcArr.length+' måltid'+(srcArr.length===1?'':'er')+' från '+prettyDate(b.dataset.src)+' till '+dayLabel(day));
+      addedToast('Kopierade '+srcArr.length+' måltid'+(srcArr.length===1?'':'er')+' från '+prettyDate(b.dataset.src)+' till '+dayLabel(day),
+        copies.map(function(c){ return c.id; }));
     }
     else if(a==='draft-day'){ day = draftDay; draftDay = null; copySource = null; render(true); saveDraft(); toast('Visar '+prettyDate(day)+'.'); }
     else if(a==='draft-drop'){ clearDraft(); builderRows = []; manualParts = []; render(); toast('Utkastet slängt.'); }
@@ -1815,11 +2062,12 @@ function wireToday(){
     else if(a==='edit-meal'){
       editingMealId=b.dataset.id;
       const e0 = (meals[day]||[]).find(x=>x.id===b.dataset.id);
+      editType = e0 ? e0.type : null;
       editItems = (e0 && Array.isArray(e0.items)) ? e0.items.map(it=>Object.assign({}, it)) : null;
       editParts = (!editItems && e0 && Array.isArray(e0.parts)) ? e0.parts.map(p=>Object.assign({}, p)) : null;
       render(); const d=$('#edit-desc'); if(d){ d.focus(); d.select(); }
     }
-    else if(a==='edit-cancel'){ editingMealId=null; editItems=null; editParts=null; render(); }
+    else if(a==='edit-cancel'){ editingMealId=null; editItems=null; editParts=null; editType=null; render(); }
     else if(a==='ei-del'){ editItems.splice(parseInt(b.dataset.i,10),1); refreshEditBox(); }
     else if(a==='ep-del'){ editParts.splice(parseInt(b.dataset.i,10),1); refreshEditBox(); }
     else if(a==='ei-add'){
@@ -1832,13 +2080,15 @@ function wireToday(){
       refreshEditBox();
     }
     else if(a==='edit-save'){
+      // felskrivna tal stoppas här precis som när man lägger till — tidigare blev de tyst 0
+      const numEls = document.querySelectorAll('#edit-kcal, #edit-protein, .ei-amt, .ep-kcal, .ep-protein');
+      for(let k=0;k<numEls.length;k++){ if(badNumberWarning(numEls[k])) return; }
       const prevProtein = totalsFor(day).protein;
       const id=b.dataset.id, arr=meals[day]||[], idx=arr.findIndex(e=>e.id===id);
       if(idx>=0){
         const cur = arr[idx];
         const d=($('#edit-desc').value||'').trim();
-        const tSel = document.querySelector('.pill[data-etype].active');
-        const type = tSel ? tSel.dataset.etype : cur.type;
+        const type = editType || cur.type;
         let patch;
         if(editItems){
           if(!editItems.length){ toast('Måltiden måste ha minst en ingrediens.', true); return; }
@@ -1862,16 +2112,16 @@ function wireToday(){
         arr[idx]=Object.assign({}, cur, patch);
         save(LS.meals, meals);
       }
-      editingMealId=null; editItems=null; editParts=null; maybeCelebrate(prevProtein); render();
+      editingMealId=null; editItems=null; editParts=null; editType=null; maybeCelebrate(prevProtein); render();
     }
     // render(true) — behåll det som redan står i beskrivning/kcal/protein
     else if(a==='builder-del'){ builderRows.splice(parseInt(b.dataset.i,10),1); render(true); saveDraft(); }
     else if(a==='part-del'){ manualParts.splice(parseInt(b.dataset.i,10),1); render(true); saveDraft(); }
     else if(a==='merge-group'){
-      const mt = b.dataset.mtype;
-      const arr = meals[day]||[];
+      const mt = b.dataset.mtype, d0 = day;
+      const arr = meals[d0]||[];
       const grp = arr.filter(e=>e.type===mt);
-      if(grp.length>1 && confirm('Slå ihop '+grp.length+' rader i '+mealTypeLabel(mt)+' till en rad?')){
+      if(grp.length>1){ // ingen "Är du säker?" — notisen har "Ångra"
         const sum = grp.reduce(function(a2,e){ return {kcal:a2.kcal+e.kcal, protein:a2.protein+e.protein}; }, {kcal:0,protein:0});
         grp.forEach(function(e){ markDeleted('meals', e.id); }); // originalen ersätts av den nya raden
         const merged = { id: uid(), type: mt, desc: grp.map(e=>e.desc).join(', '), kcal: sum.kcal, protein: sum.protein, up: Date.now() };
@@ -1882,25 +2132,34 @@ function wireToday(){
         } else {
           merged.parts = grp.map(function(e){ return { desc: e.desc, kcal: e.kcal, protein: e.protein }; });
         }
-        const out=[]; let placed=false;
-        arr.forEach(function(e){ if(e.type===mt){ if(!placed){ out.push(merged); placed=true; } } else { out.push(e); } });
-        meals[day]=out; save(LS.meals, meals); render();
-        toast('Ihopslaget till en rad.');
+        const out=[]; let placed=false, at=0;
+        arr.forEach(function(e){ if(e.type===mt){ if(!placed){ at=out.length; out.push(merged); placed=true; } } else { out.push(e); } });
+        meals[d0]=out; save(LS.meals, meals); render();
+        toast('Ihopslaget till en rad.', false, function(){
+          // ta bort den ihopslagna raden och lägg tillbaka originalen där den stod
+          markDeleted('meals', merged.id);
+          meals[d0] = (meals[d0]||[]).filter(e=>e.id!==merged.id);
+          restoreMeals(d0, grp, at);
+          toast('Ångrat — raderna är isär igen.');
+        });
       }
     }
     else if(a==='ai-edit'){ aiEditing=true; render(); }
     else if(a==='quick'){
       const r = quickList[parseInt(b.dataset.qi,10)]; if(!r) return;
-      const prevProtein = totalsFor(day).protein;
-      const entry = { id: uid(), type: mealType, up: Date.now(),
-        desc: r.desc, kcal: Number(r.kcal)||0, protein: Number(r.protein)||0 };
-      // djupkopiera ev. ingredienser/delar så måltiden blir mängd-justerbar och oberoende av andra tillägg
-      if(Array.isArray(r.items)) entry.items = r.items.map(function(it){ return Object.assign({}, it); });
-      if(Array.isArray(r.parts)) entry.parts = r.parts.map(function(p){ return Object.assign({}, p); });
-      meals[day] = (meals[day]||[]).concat(entry); save(LS.meals, meals); maybeCelebrate(prevProtein); render();
-      // listan ligger långt ner på mobilen — kvittera vad som lades till och var
-      addedToast(r.desc+' → '+mealTypeLabel(mealType)+' '+dayLabel(day));
+      addFromHistory(r);
     }
+    else if(a==='search-add'){
+      const r = searchList[parseInt(b.dataset.si,10)]; if(!r) return;
+      quickFilter = ''; // sökningen är klar — nästa gång börjar kortet med snabbvalen igen
+      addFromHistory(r);
+    }
+  };
+  const qs = $('#q-search');
+  if(qs) qs.oninput = function(){
+    // bara resultatlistan byts — fältet ritas inte om, så tangentbordet och markören stannar kvar
+    quickFilter = qs.value;
+    const box = $('#q-results'); if(box) box.innerHTML = quickResultsHTML();
   };
   // breda knappar: samma skydd som raderna — en dragning över dem ska inte utlösa dem
   if($('#m-add')) $('#m-add').onclick = onTap(addMeal);
@@ -1947,6 +2206,12 @@ function wireToday(){
     flushPendingRender();
   };
   if($('#ai-est')) $('#ai-est').onclick = onTap(runEstimate);
+  // utan capture-attribut: telefonen låter en välja mellan kameran och bilder man redan tagit
+  if($('#ai-photo')) $('#ai-photo').onclick = onTap(function(){ const f=$('#ai-photo-file'); if(f) f.click(); });
+  if($('#ai-photo-file')) $('#ai-photo-file').onchange = function(){
+    const f = this.files && this.files[0]; this.value = '';
+    if(f) runPhotoEstimate(f);
+  };
   if($('#ai-model')) $('#ai-model').onchange = function(){ aiModel = this.value; save(LS.aimodel, aiModel); };
   if($('#ai-save')) $('#ai-save').onclick = function(){
     const v = ($('#ai-key').value||'').trim(); if(!v) return;
@@ -1955,8 +2220,10 @@ function wireToday(){
   if($('#ai-remove')) $('#ai-remove').onclick = function(){ apiKey=''; save(LS.apikey, ''); aiEditing=false; render(); };
 }
 
-/* något står i fältet men går inte att tolka som tal — säg till istället för att tyst spara 0 */
-function badNumber(el){ if(!el) return false; const s=String(el.value||'').trim(); return s!=='' && isNaN(parseNum(s)); }
+/* något står i fältet men är inget rent tal — säg till istället för att tyst spara 0, eller 6 när man
+   skrev "6OO" med bokstaven O (parseFloat läser bara början av texten och struntar i resten) */
+const NUM_RE = /^[+-]?(\d+([.,]\d*)?|[.,]\d+)$/;
+function badNumber(el){ if(!el) return false; const s=String(el.value||'').replace(/\s+/g,''); return s!=='' && !NUM_RE.test(s); }
 function badNumberWarning(el){
   if(!badNumber(el)) return false;
   toast('Skriv ett tal, t.ex. 150 eller 1,5.', true);
@@ -1984,6 +2251,7 @@ function readCurrentPart(){
 }
 
 function addPart(){
+  if(badNumberWarning($('#m-kcal')) || badNumberWarning($('#m-protein'))) return;
   const p = readCurrentPart();
   if(!p){ toast('Skriv vad delen är först.', true); if($('#m-desc')) $('#m-desc').focus(); return; }
   manualParts.push(p);
@@ -2003,28 +2271,31 @@ function addMeal(){
     const sum = itemsSum(items);
     const auto = autoDescFromItems(items);
     const typed = ($('#m-desc') && $('#m-desc').value || '').trim();
-    meals[day] = (meals[day]||[]).concat({ id: uid(), type: mealType, desc: typed||auto, kcal: sum.kcal, protein: sum.protein, items: items, up: Date.now() });
+    const added = { id: uid(), type: mealType, desc: typed||auto, kcal: sum.kcal, protein: sum.protein, items: items, up: Date.now() };
+    meals[day] = (meals[day]||[]).concat(added);
     save(LS.meals, meals);
     builderRows = [];
     clearDraft();
     maybeCelebrate(prevProtein);
     render();
-    addedToast('Måltid tillagd från skafferiet · '+mealTypeLabel(mealType)+' '+dayLabel(day));
+    addedToast('Måltid tillagd från skafferiet · '+mealTypeLabel(mealType)+' '+dayLabel(day), [added.id]);
     return;
   }
   // delar: allt ihopskrivet blir EN rad (halvskriven del i fälten räknas med)
   if(manualParts.length){
+    if(badNumberWarning($('#m-kcal')) || badNumberWarning($('#m-protein'))) return;
     const cur = readCurrentPart();
     const parts = cur ? manualParts.concat([cur]) : manualParts.slice();
     const sum = sumParts(parts);
-    meals[day] = (meals[day]||[]).concat({ id: uid(), type: mealType, up: Date.now(),
-      desc: autoDescFromParts(parts), kcal: sum.kcal, protein: sum.protein, parts: parts.map(function(p){ return Object.assign({}, p); }) });
+    const added = { id: uid(), type: mealType, up: Date.now(),
+      desc: autoDescFromParts(parts), kcal: sum.kcal, protein: sum.protein, parts: parts.map(function(p){ return Object.assign({}, p); }) };
+    meals[day] = (meals[day]||[]).concat(added);
     save(LS.meals, meals);
     manualParts = [];
     clearDraft();
     maybeCelebrate(prevProtein);
     render();
-    addedToast('Måltid med '+parts.length+' delar tillagd som en rad · '+mealTypeLabel(mealType)+' '+dayLabel(day));
+    addedToast('Måltid med '+parts.length+' delar tillagd som en rad · '+mealTypeLabel(mealType)+' '+dayLabel(day), [added.id]);
     return;
   }
   const descEl = $('#m-desc'), kcalEl = $('#m-kcal'), protEl = $('#m-protein');
@@ -2043,16 +2314,35 @@ function addMeal(){
   clearDraft();
   maybeCelebrate(prevProtein);
   render();
-  addedToast('Tillagd · '+mealTypeLabel(mealType)+' '+dayLabel(day));
+  addedToast('Tillagd · '+mealTypeLabel(mealType)+' '+dayLabel(day), [entry.id]);
+}
+
+/* snabbval och sökträffar: lägg till en tidigare rätt i vald måltidstyp på visad dag */
+function addFromHistory(r){
+  const prevProtein = totalsFor(day).protein;
+  const entry = { id: uid(), type: mealType, up: Date.now(),
+    desc: r.desc, kcal: Number(r.kcal)||0, protein: Number(r.protein)||0 };
+  // djupkopiera ev. ingredienser/delar så måltiden blir mängd-justerbar och oberoende av andra tillägg
+  if(Array.isArray(r.items)) entry.items = r.items.map(function(it){ return Object.assign({}, it); });
+  if(Array.isArray(r.parts)) entry.parts = r.parts.map(function(p){ return Object.assign({}, p); });
+  meals[day] = (meals[day]||[]).concat(entry); save(LS.meals, meals); maybeCelebrate(prevProtein); render();
+  // kvittera vad som lades till och var — "Ångra" fångar ett dubbeltryck
+  addedToast(r.desc+' → '+mealTypeLabel(mealType)+' '+dayLabel(day), [entry.id]);
 }
 
 function wireBody(){
   $('#tab-content').onclick = function(ev){
     const b = ev.target.closest('[data-act]'); if(!b) return;
-    if(b.dataset.act==='del-measure'){ if(confirm('Ta bort den här mätningen?')){
-      const rec = body.find(x=>x.id===b.dataset.id);
-      if(rec) markDeleted('body', rec.date);
-      body = body.filter(x=>x.id!==b.dataset.id); save(LS.body, body); render(); } }
+    if(b.dataset.act==='del-measure'){
+      const rec = body.find(x=>x.id===b.dataset.id); if(!rec) return;
+      markDeleted('body', rec.date);
+      body = body.filter(x=>x.id!==rec.id); save(LS.body, body); render();
+      toast('Mätningen '+dayLabel(rec.date)+' borttagen.', false, function(){
+        delete tombstones.body[rec.date]; save(LS.tombstones, tombstones);
+        if(!body.some(x=>x.date===rec.date)) body.push(Object.assign({}, rec, { up: Date.now() }));
+        save(LS.body, body); render(true); toast('Ångrat — mätningen är tillbaka.');
+      });
+    }
   };
   $('#b-add').onclick = function(){
     const d = $('#b-date').value || todayStr();
@@ -2085,7 +2375,13 @@ function wireTrends(){
 function wireMal(){
   function bind(id, field, asInt){
     const el = $(id); if(!el) return;
-    el.oninput = function(){ settings[field] = el.value; save(LS.settings, settings); };
+    el.oninput = function(){
+      // sparas vid varje tangent — ett felskrivet mål ("2OOO") markeras rött och sparas inte
+      const bad = badNumber(el);
+      el.style.borderColor = bad ? 'var(--error)' : ''; el.setAttribute('aria-invalid', bad ? 'true' : 'false');
+      if(bad) return;
+      settings[field] = el.value; save(LS.settings, settings);
+    };
   }
   bind('#g-kcal','kcalGoal'); bind('#g-protein','proteinGoal');
   bind('#g-weight','targetWeight'); bind('#g-waist','targetWaist');
@@ -2215,7 +2511,7 @@ function mergeData(data){
     save(LS.favorites, favorites);
   }
   if(data.settings && typeof data.settings==='object'){ settings = Object.assign({}, settings, data.settings); save(LS.settings, settings); applyTheme(); }
-  if(data.aimodel){ aiModel = data.aimodel; save(LS.aimodel, aiModel); }
+  if(data.aimodel){ aiModel = data.aimodel; save(LS.aimodel, aiModel); migrateLegacyModel(); } // gammal backup kan ha ett utgånget modellnamn
   save(LS.tombstones, tombstones);
 }
 
@@ -2259,7 +2555,7 @@ function updateBackupReminder(){
 
 /* ---------- start ---------- */
 function goTab(t){
-  tab=t; editingMealId=null; editItems=null; editParts=null; editingFoodId=null; foodFilter=''; copySource=null; render();
+  tab=t; editingMealId=null; editItems=null; editParts=null; editType=null; editingFoodId=null; foodFilter=''; quickFilter=''; copySource=null; render();
   try{ window.scrollTo(0,0); }catch(e){} // ny flik börjar högst upp — inte mitt i förra flikens scrolläge
   const tc = $('#tab-content');
   if(tc){ tc.classList.remove('fade'); void tc.offsetWidth; tc.classList.add('fade'); }
