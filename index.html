@@ -176,6 +176,13 @@
   .edit-row .grid2{gap:8px;}
   .edit-actions{display:flex; gap:8px;}
   .edit-actions .btn{flex:1; padding:9px;}
+  .btn-sm{padding:9px; font-size:13px;}
+  /* delar i en måltid som redigeras: namn · kcal · protein · knapp */
+  .part-grid{display:grid; grid-template-columns:minmax(0,1fr) 64px 56px 34px; gap:6px; align-items:center; padding:3px 0;}
+  .part-grid input{min-width:0; padding:6px 8px; font-size:14px; border-radius:8px;}
+  .part-grid .icon-btn{justify-self:center;}
+  .part-head{font-size:11px; color:var(--muted); padding:0 2px;}
+  .part-new{border-top:1px dashed var(--border); margin-top:4px; padding-top:7px;}
   .btn-ghost{background:var(--surface3); color:var(--muted);}
   /* favoriter & återanvänd tidigare dag */
   .icon-btn.fav-on{color:var(--amber);}
@@ -240,7 +247,7 @@
     .tab:active{transform:none; opacity:.7;}
     /* iOS zoomar in sidan när ett fält med mindre än 16 px text får fokus — och zoomar inte tillbaka */
     input, select, .ai-select, input.goal, .copy-src input[type=date],
-    .builder-row .ei-amt, .builder-row .ep-kcal, .builder-row .ep-protein{font-size:16px;}
+    .builder-row .ei-amt, .builder-row .ep-kcal, .builder-row .ep-protein, .part-grid input{font-size:16px;}
     .icon-btn{padding:10px; margin:-4px;}
     .navbtn{padding:10px;}
     .topbar{margin-bottom:16px;}
@@ -399,6 +406,7 @@ let editingMealId = null; // id på måltid som redigeras inline
 let editItems = null;   // arbetskopia av ingredienser (items) medan en måltid redigeras
 let editParts = null;   // arbetskopia av delar (parts) medan en måltid redigeras
 let editType = null;    // vald måltidstyp medan en måltid redigeras — i tillståndet, så en synk-omritning inte nollställer den
+let aiEst = null;       // senaste AI-uppskattningen i lägg till-kortet {desc, parts} — delarna följer med måltiden så den går att dela upp senare
 let foodFilter = ''; // sökfilter i skafferiet
 let editingFoodId = null; // id på livsmedel som redigeras inline i Skafferi
 let favorites = load(LS.favorites, []); // stjärnmärkta rätter: {id, desc, kcal, protein, ev. items/parts}
@@ -472,10 +480,10 @@ function saveDraft(){
     return;
   }
   try{ localStorage.setItem(LS.draft, JSON.stringify({ desc:desc, kcal:kcal, protein:protein,
-    mealType:mealType, builderRows:builderRows, manualParts:manualParts, day:day, at:Date.now() })); }catch(e){}
+    mealType:mealType, builderRows:builderRows, manualParts:manualParts, aiEst:aiEst, day:day, at:Date.now() })); }catch(e){}
 }
 function saveDraftDebounced(){ clearTimeout(draftTimer); draftTimer=setTimeout(saveDraft, 500); }
-function clearDraft(){ clearTimeout(draftTimer); carriedFields = null; draftDay = null; try{ localStorage.removeItem(LS.draft); }catch(e){} }
+function clearDraft(){ clearTimeout(draftTimer); carriedFields = null; draftDay = null; aiEst = null; try{ localStorage.removeItem(LS.draft); }catch(e){} }
 const DRAFT_MAX_AGE = 12*3600*1000; // äldre utkast är inte längre "appen dog mitt i" — då är risken större att de hamnar fel
 let draftDay = null;                // utkastets dag när den skiljer sig från idag — användaren väljer själv i kortet
 function restoreDraft(){
@@ -490,6 +498,7 @@ function restoreDraft(){
   if(d.mealType) mealType = d.mealType;
   if(Array.isArray(d.builderRows)) builderRows = d.builderRows;
   if(Array.isArray(d.manualParts)) manualParts = d.manualParts;
+  if(d.aiEst && Array.isArray(d.aiEst.parts)) aiEst = d.aiEst;
   if(d.desc || d.kcal || d.protein){
     pendingDraftFields = { desc:d.desc||'', kcal:d.kcal||'', protein:d.protein||'' };
     // skafferiläget saknar kcal/protein-fälten — bär med värdena så de dyker upp vid metodbyte
@@ -509,7 +518,7 @@ function applyPendingDraftFields(){
 const SUPABASE_URL = 'https://schgcawfirvzlemwdoqf.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNjaGdjYXdmaXJ2emxlbXdkb3FmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgwMDIyMzcsImV4cCI6MjA5MzU3ODIzN30.6HYHPlZF3gXlFoR30qVJjJ6-zVYyKEv8P-MTrNBOjYo';
 const SYNC_TABLE = 'matlogg_state';
-const APP_VERSION = 18; // håll i takt med CACHE_VERSION i sw.js
+const APP_VERSION = 19; // håll i takt med CACHE_VERSION i sw.js
 
 let sb = null;              // supabase-klient
 let syncUser = null;        // inloggad användare (null = utloggad)
@@ -857,6 +866,33 @@ function sumParts(parts){ // OBS: befintlig partsSum(extra) jobbar mot manualPar
 }
 function autoDescFromItems(items){ return (items||[]).map(function(it){ return it.name+' '+foodAmountLabel(it, it.amount); }).join(', '); }
 function autoDescFromParts(parts){ return (parts||[]).map(function(p){ return p.desc; }).join(', '); }
+/* AI:ns uppdelning: minst två delar med namn, annars ingen */
+function cleanParts(raw){
+  if(!Array.isArray(raw)) return null;
+  const parts = raw.map(function(p){ p = p||{}; return { desc: String(p.desc||'').trim().slice(0, 60),
+      kcal: Math.max(0,Math.round(Number(p.kcal)||0)), protein: Math.max(0,Math.round(Number(p.protein)||0)) }; })
+    .filter(function(p){ return p.desc; });
+  return parts.length>=2 ? parts : null;
+}
+/* delarna räknas om så att de summerar till en given total (användaren justerade summan, eller AI:n
+   räknade lite fel) — avrundningsresten läggs på den största delen */
+function scaleParts(parts, kcal, protein){
+  const out = parts.map(function(p){ return Object.assign({}, p); });
+  [['kcal',kcal],['protein',protein]].forEach(function(kt){
+    const key = kt[0], total = kt[1];
+    const base = out.reduce(function(a,p){ return a+p[key]; }, 0);
+    out.forEach(function(p){ p[key] = base>0 ? Math.round(p[key]*total/base) : 0; });
+    let big = 0;
+    out.forEach(function(p,i){ const b = out[big]; if(p[key]>b[key] || (p[key]===b[key] && p.kcal>b.kcal)) big = i; });
+    out[big][key] += total - out.reduce(function(a,p){ return a+p[key]; }, 0);
+  });
+  return out;
+}
+/* AI:ns delar för det som står i fälten — bara om beskrivningen är den som uppskattades */
+function aiParts(desc, kcal, protein){
+  if(!aiEst || !Array.isArray(aiEst.parts) || aiEst.desc!==desc) return null;
+  return scaleParts(aiEst.parts, kcal, protein);
+}
 /* djupkopia av en måltidspost (nytt id + up), inkl. ev. items/parts */
 function copyMealEntry(e){
   const n = { id: uid(), type: e.type, desc: e.desc, kcal: e.kcal, protein: e.protein, up: Date.now() };
@@ -1010,13 +1046,34 @@ const kcalPrompt = function(what){
   return 'Uppskatta totala kalorier (kcal) och protein i gram för '+what+'. '
     +'Utgå från typiska näringsvärden per 100 g för varje ingrediens och skala till den angivna mängden. ';
 };
+// delarna sparas med måltiden — då går t.ex. kebaben och riset att ändra var för sig efteråt
+const partsPrompt = 'Består maten av flera olika delar (t.ex. kebab och ris), lista dem också var för sig i "parts" '
+  +'med en kort beskrivning på svenska och den mängd du räknat med, t.ex. "ris, 2 dl kokt". Delarna ska summera till totalen. '
+  +'Är det bara en sak, lämna "parts" tom. ';
+const partsJSON = '"parts": [{"desc": "text", "kcal": tal, "protein": tal}]';
+/* totalen blir delarnas summa när AI:n delat upp maten, så att de alltid stämmer överens */
+function withParts(r, raw){
+  const parts = cleanParts(raw);
+  if(!parts) return Object.assign(r, { parts:null });
+  const s = sumParts(parts);
+  return Object.assign(r, { kcal:s.kcal, protein:s.protein, parts:parts });
+}
 async function estimateMacros(description, key){
   const p = await askClaudeJSON(
     'Du är en noggrann näringsberäknare. '+kcalPrompt('"'+description+'"')
-    +'Om ett antal portioner anges, dela slutsumman på det antalet och svara per portion. '
-    +'Om en mängd saknas, anta en normal portion. '
-    +'Svara ENDAST med ren JSON, ingen markdown, inga förklaringar: {"kcal": tal, "protein": tal}', key, 25000);
-  return { kcal: Math.max(0,Math.round(Number(p.kcal)||0)), protein: Math.max(0,Math.round(Number(p.protein)||0)) };
+    +'Om ett antal portioner anges, dela slutsumman (och delarna) på det antalet och svara per portion. '
+    +'Om en mängd saknas, anta en normal portion. '+partsPrompt
+    +'Svara ENDAST med ren JSON, ingen markdown, inga förklaringar: {"kcal": tal, "protein": tal, '+partsJSON+'}', key, 25000);
+  return withParts({ kcal: Math.max(0,Math.round(Number(p.kcal)||0)), protein: Math.max(0,Math.round(Number(p.protein)||0)) }, p.parts);
+}
+/* en redan loggad måltid delas upp i sina delar — totalen behålls */
+async function splitWithAI(whole, key){
+  const p = await askClaudeJSON('Du är en noggrann näringsberäknare. Måltiden "'+whole.desc+'" är loggad som '
+    +whole.kcal+' kcal och '+whole.protein+' g protein. Dela upp den i sina delar (t.ex. kebab, ris och sås) '
+    +'med en kort beskrivning på svenska och den mängd du räknar med, och fördela energin och proteinet mellan delarna. '
+    +'Svara ENDAST med ren JSON, ingen markdown, inga förklaringar: {'+partsJSON+'}', key, 25000);
+  const parts = cleanParts(p.parts);
+  return parts ? scaleParts(parts, whole.kcal, whole.protein) : null;
 }
 /* foto av maten → beskrivning + kcal + protein. hint = det som ev. redan står i beskrivningen */
 async function estimatePhoto(jpegBase64, hint, key){
@@ -1025,13 +1082,15 @@ async function estimatePhoto(jpegBase64, hint, key){
     { type:'text', text: 'Du är en noggrann näringsberäknare. Bilden visar en måltid.'
       + (hint ? ' Användaren beskriver den så här: "'+hint+'".' : '')
       + ' Identifiera maten och bedöm portionsstorleken utifrån tallriken, besticken och annat i bilden. '
-      + kcalPrompt('det som syns i bilden')
+      + kcalPrompt('det som syns i bilden') + partsPrompt
       + 'Svara ENDAST med ren JSON, ingen markdown, inga förklaringar: '
-      + '{"desc": "kort beskrivning på svenska, högst 60 tecken", "kcal": tal, "protein": tal}' }
+      + '{"desc": "kort beskrivning på svenska, högst 60 tecken", "kcal": tal, "protein": tal, '+partsJSON+'}' }
   ], key, 45000);
-  return { desc: String(p.desc||'').trim().slice(0, 80),
-           kcal: Math.max(0,Math.round(Number(p.kcal)||0)), protein: Math.max(0,Math.round(Number(p.protein)||0)) };
+  return withParts({ desc: String(p.desc||'').trim().slice(0, 80),
+           kcal: Math.max(0,Math.round(Number(p.kcal)||0)), protein: Math.max(0,Math.round(Number(p.protein)||0)) }, p.parts);
 }
+/* "kebab 600 kcal · ris, 2 dl kokt 300 kcal" — visas i statusraden så man ser vad AI:n räknat med */
+function partsSummary(parts){ return parts.map(function(p){ return p.desc+' '+p.kcal+' kcal'; }).join(' · '); }
 /* ett anrop till Claude som ska svara med ren JSON — delas av text- och fotouppskattningen */
 async function askClaudeJSON(content, key, timeoutMs){
   const ctrl = new AbortController();
@@ -1111,9 +1170,11 @@ async function runPhotoEstimate(file){
     const d = $('#m-desc'); if(d && !d.value.trim() && r.desc) d.value = r.desc;
     if($('#m-kcal')) $('#m-kcal').value = r.kcal;
     if($('#m-protein')) $('#m-protein').value = r.protein;
+    const used = d ? d.value.trim() : '';
+    aiEst = (r.parts && used) ? { desc: used, parts: r.parts } : null;
     saveDraft();
     const st = $('#ai-status');
-    if(st){ st.style.color='var(--green)'; st.textContent='Uppskattat från bilden ✓ — kolla beskrivning och värden innan du lägger till.'; }
+    if(st){ st.style.color='var(--green)'; st.textContent='Uppskattat från bilden ✓'+(aiEst ? ' — '+partsSummary(aiEst.parts) : '')+'. Kolla beskrivning och värden innan du lägger till.'; }
   }catch(err){
     const st = $('#ai-status');
     if(st){ st.style.color='var(--error)'; st.textContent='Kunde inte uppskatta bilden: '+((err&&err.message)||'okänt fel')+'. Fyll i manuellt.'; }
@@ -1134,8 +1195,9 @@ async function runEstimate(){
     const r = await estimateMacros(desc, apiKey);
     if($('#m-kcal')) $('#m-kcal').value = r.kcal;
     if($('#m-protein')) $('#m-protein').value = r.protein;
+    aiEst = r.parts ? { desc: desc, parts: r.parts } : null;
     saveDraft(); // uppskattningen ska överleva om mobilen dödar appen innan man hunnit lägga till
-    if(status){ status.style.color='var(--green)'; status.textContent='Uppskattat ✓ — justera vid behov.'; }
+    if(status){ status.style.color='var(--green)'; status.textContent='Uppskattat ✓ — '+(r.parts ? partsSummary(r.parts)+'. Justera' : 'justera')+' vid behov.'; }
   }catch(err){
     if(status){ status.style.color='var(--error)'; status.textContent='Kunde inte uppskatta: '+((err&&err.message)||'okänt fel')+'. Fyll i manuellt.'; }
   }finally{
@@ -1267,7 +1329,9 @@ function mealRowHTML(e){
       : '<div class="grid2">'
         +   '<div class="field-wrap"><input id="edit-kcal" type="text" inputmode="decimal" value="'+e.kcal+'" aria-label="Kalorier"><span class="field-suffix">kcal</span></div>'
         +   '<div class="field-wrap"><input id="edit-protein" type="text" inputmode="decimal" value="'+e.protein+'" aria-label="Protein"><span class="field-suffix">g protein</span></div>'
-        + '</div>';
+        + '</div>'
+        // en klump som "kebab med ris" går att dela upp i delar som sedan ändras var för sig
+        + '<button class="btn btn-ghost btn-sm" data-act="edit-to-parts">'+(apiKey ? sparkleSVG+' ' : '')+'Dela upp i delar</button>';
     return '<div class="edit-row" data-edit-id="'+e.id+'">'
       + head + body
       + '<div class="edit-actions">'
@@ -1305,20 +1369,35 @@ function editItemsBoxHTML(){
         + '<div class="grow"><label class="field-label" for="ei-food">Lägg till livsmedel</label><select id="ei-food" class="ai-select">'+addOpts+'</select></div>'
         + '<div style="width:92px"><label class="field-label" for="ei-add-amt">Mängd</label><input id="ei-add-amt" type="text" inputmode="decimal" placeholder="t.ex. 150"></div>'
         + '<button class="btn ai-btn" data-act="ei-add" style="width:auto;white-space:nowrap">'+plusSVG+' Rad</button>'
-      + '</div>' : '');
+      + '</div>' : '')
+    + splitRowsHTML(editItems.length);
 }
 function editPartsBoxHTML(){
+  // namnet går att ändra — "ris" kan bli "ris 1 dl" när man åt mindre
   const rows = editParts.map(function(p,i){
-    return '<div class="builder-row">'
-      + '<span class="builder-name">'+escapeHTML(p.desc)+'</span>'
-      + '<input id="ep-kcal-'+i+'" class="ep-kcal" data-i="'+i+'" type="text" inputmode="decimal" value="'+p.kcal+'" aria-label="Kalorier '+escapeHTML(p.desc)+'"><span class="builder-amt">kcal</span>'
-      + '<input id="ep-protein-'+i+'" class="ep-protein" data-i="'+i+'" type="text" inputmode="decimal" value="'+p.protein+'" aria-label="Protein '+escapeHTML(p.desc)+'"><span class="builder-amt">g</span>'
+    return '<div class="part-grid">'
+      + '<input id="ep-desc-'+i+'" class="ep-desc" data-i="'+i+'" type="text" value="'+escapeHTML(p.desc)+'" aria-label="Del '+(i+1)+'">'
+      + '<input id="ep-kcal-'+i+'" class="ep-kcal" data-i="'+i+'" type="text" inputmode="decimal" value="'+p.kcal+'" aria-label="Kalorier '+escapeHTML(p.desc)+'">'
+      + '<input id="ep-protein-'+i+'" class="ep-protein" data-i="'+i+'" type="text" inputmode="decimal" value="'+p.protein+'" aria-label="Protein '+escapeHTML(p.desc)+'">'
       + '<button class="icon-btn" data-act="ep-del" data-i="'+i+'" aria-label="Ta bort del">'+trashSVG+'</button>'
       + '</div>';
   }).join('');
   const sum = sumParts(editParts);
-  return rows
-    + '<div class="builder-sum"><span>Summa</span><span id="ei-sum"><span class="amber">'+sum.kcal+' kcal</span> · <span class="green">'+sum.protein+' g</span></span></div>';
+  return '<div class="part-grid part-head"><span>Del</span><span>kcal</span><span>protein</span><span></span></div>'
+    + rows
+    + '<div class="part-grid part-new">'
+    +   '<input id="ep-new-desc" type="text" placeholder="Ny del, t.ex. ris 2 dl" aria-label="Ny del">'
+    +   '<input id="ep-new-kcal" type="text" inputmode="decimal" placeholder="kcal" aria-label="Kalorier, ny del">'
+    +   '<input id="ep-new-protein" type="text" inputmode="decimal" placeholder="g" aria-label="Protein, ny del">'
+    +   '<button class="icon-btn" data-act="ep-add" aria-label="Lägg till del">'+plusSVG+'</button>'
+    + '</div>'
+    + (apiKey ? '<div class="hint" style="margin-top:4px">Lämna kcal och protein tomma på en ny del så uppskattar AI:n den.</div>' : '')
+    + '<div class="builder-sum"><span>Summa</span><span id="ei-sum"><span class="amber">'+sum.kcal+' kcal</span> · <span class="green">'+sum.protein+' g</span></span></div>'
+    + splitRowsHTML(editParts.length);
+}
+/* motsatsen till "slå ihop": varje del/ingrediens blir en egen rad */
+function splitRowsHTML(n){
+  return n>=2 ? '<button class="btn btn-ghost btn-sm" data-act="edit-split-rows" style="margin-top:10px">Dela upp i '+n+' separata rader</button>' : '';
 }
 function refreshEditSum(){
   const sEl = document.getElementById('ei-sum'); if(!sEl) return;
@@ -1350,7 +1429,112 @@ function wireEditBox(){
         refreshEditSum();
       };
     });
+    document.querySelectorAll('.ep-desc').forEach(function(inp){
+      inp.oninput = function(){ editParts[parseInt(inp.dataset.i,10)].desc = inp.value; };
+    });
+    ['#ep-new-desc','#ep-new-kcal','#ep-new-protein'].forEach(function(id){
+      const el = $(id); if(el) el.onkeydown = function(e){ if(e.key==='Enter') addEditPart(); };
+    });
   }
+}
+/* ny del i en måltid som redigeras — med tomma kcal/protein och AI påslaget uppskattar AI:n den */
+async function addEditPart(){
+  const dEl=$('#ep-new-desc'), kEl=$('#ep-new-kcal'), pEl=$('#ep-new-protein');
+  if(!dEl || !editParts) return;
+  const desc = dEl.value.trim();
+  if(!desc){ toast('Skriv vad delen är först.', true); dEl.focus(); return; }
+  if(badNumberWarning(kEl) || badNumberWarning(pEl)) return;
+  let add = [{ desc: desc, kcal: Math.max(0,Math.round(parseNum(kEl.value)||0)), protein: Math.max(0,Math.round(parseNum(pEl.value)||0)) }];
+  if(apiKey && !kEl.value.trim() && !pEl.value.trim()){
+    const id = editingMealId, btn = $('[data-act="ep-add"]');
+    if(btn){ btn.disabled = true; btn.textContent = '…'; }
+    try{
+      const r = await estimateMacros(desc, apiKey);
+      add = r.parts || [{ desc: desc, kcal: r.kcal, protein: r.protein }];
+    }catch(err){
+      const b2 = $('[data-act="ep-add"]'); if(b2){ b2.disabled = false; b2.innerHTML = plusSVG; }
+      toast('Kunde inte uppskatta: '+((err&&err.message)||'okänt fel')+'. Fyll i kcal och protein själv.', true);
+      return;
+    }
+    if(editingMealId!==id || !editParts) return;   // redigeringen stängdes medan AI:n svarade
+  }
+  Array.prototype.push.apply(editParts, add);
+  refreshEditBox();
+  const n = $('#ep-new-desc'); if(n) n.focus();
+}
+/* en måltid utan delar ("kebab med ris") delas upp: med AI fördelas totalen på delarna,
+   annars blir hela måltiden första delen och man lägger till resten själv */
+async function editToParts(){
+  const dEl=$('#edit-desc'), kEl=$('#edit-kcal'), pEl=$('#edit-protein');
+  if(!dEl || !kEl || !pEl) return;
+  if(badNumberWarning(kEl) || badNumberWarning(pEl)) return;
+  const id = editingMealId, cur = (meals[day]||[]).find(function(e){ return e.id===id; });
+  if(!cur) return;
+  const whole = { desc: dEl.value.trim() || cur.desc,
+    kcal: Math.max(0,Math.round(parseNum(kEl.value)||0)), protein: Math.max(0,Math.round(parseNum(pEl.value)||0)) };
+  let parts = null, note = '';
+  if(apiKey){
+    const btn = $('[data-act="edit-to-parts"]'); if(btn){ btn.disabled = true; btn.textContent = 'Delar upp…'; }
+    try{
+      parts = await splitWithAI(whole, apiKey);
+      if(!parts) note = 'AI:n hittade bara en del — lägg till resten nedan.';
+    }catch(err){
+      note = 'AI:n kunde inte dela upp den: '+((err&&err.message)||'okänt fel')+'. Lägg till delarna själv nedan.';
+    }
+    if(editingMealId!==id) return;
+  }
+  editParts = parts || [whole];
+  editItems = null;
+  render(true);   // beskrivningen och måltidstypen står kvar som de var
+  if(note) toast(note, true);
+  else if(parts) toast('Uppdelad i '+parts.length+' delar — justera och tryck Spara.');
+  else { const n = $('#ep-new-desc'); if(n) n.focus(); }
+}
+/* gemensam kontroll för Spara och Dela upp */
+function editInputsOK(){
+  // felskrivna tal stoppas här precis som när man lägger till — tidigare blev de tyst 0
+  const numEls = document.querySelectorAll('#edit-kcal, #edit-protein, .ei-amt, .ep-kcal, .ep-protein');
+  for(let k=0;k<numEls.length;k++){ if(badNumberWarning(numEls[k])) return false; }
+  if(editItems){
+    if(!editItems.length){ toast('Måltiden måste ha minst en ingrediens.', true); return false; }
+    for(let k=0;k<editItems.length;k++){ if(!(parseNum(editItems[k].amount)>0)){ toast('Ange en mängd större än 0 på alla ingredienser.', true); return false; } }
+  }
+  if(editParts){
+    const nd = $('#ep-new-desc');
+    // en halvskriven ny del ska inte försvinna tyst
+    if(nd && nd.value.trim()){ toast('Tryck + för att lägga till den nya delen först (eller töm fältet).', true); nd.focus(); return false; }
+    if(!editParts.length){ toast('Måltiden måste ha minst en del.', true); return false; }
+    if(editParts.some(function(p){ return !String(p.desc||'').trim(); })){ toast('Varje del behöver ett namn.', true); return false; }
+  }
+  return true;
+}
+function cleanEditParts(){
+  return editParts.map(function(p){ return { desc: String(p.desc).trim(),
+    kcal: Math.max(0,Math.round(parseNum(p.kcal)||0)), protein: Math.max(0,Math.round(parseNum(p.protein)||0)) }; });
+}
+/* varje del/ingrediens blir en egen rad på samma plats — med "Ångra" som vid "slå ihop" */
+function splitEditedMeal(){
+  if(!editInputsOK()) return;
+  const d0 = day, arr = meals[d0]||[], idx = arr.findIndex(function(e){ return e.id===editingMealId; });
+  if(idx<0){ editingMealId=null; editItems=null; editParts=null; editType=null; render(); return; }
+  const cur = arr[idx], type = editType || cur.type, now = Date.now();
+  const pieces = editItems
+    ? editItems.map(function(it){ const s = itemsSum([it]);
+        return { id: uid(), type: type, desc: autoDescFromItems([it]), kcal: s.kcal, protein: s.protein, items: [Object.assign({}, it)], up: now }; })
+    : cleanEditParts().map(function(p){ return { id: uid(), type: type, desc: p.desc, kcal: p.kcal, protein: p.protein, up: now }; });
+  if(pieces.length<2) return;
+  const prevProtein = totalsFor(d0).protein;
+  markDeleted('meals', cur.id);
+  Array.prototype.splice.apply(arr, [idx, 1].concat(pieces));
+  save(LS.meals, meals);
+  editingMealId=null; editItems=null; editParts=null; editType=null;
+  maybeCelebrate(prevProtein); render();
+  toast('Uppdelad i '+pieces.length+' rader.', false, function(){
+    const gone = {}; pieces.forEach(function(p){ gone[p.id] = 1; markDeleted('meals', p.id); });
+    meals[d0] = (meals[d0]||[]).filter(function(e){ return !gone[e.id]; });
+    restoreMeals(d0, [cur], idx);
+    toast('Ångrat — måltiden är hel igen.');
+  });
 }
 
 function builderSum(){
@@ -2070,6 +2254,9 @@ function wireToday(){
     else if(a==='edit-cancel'){ editingMealId=null; editItems=null; editParts=null; editType=null; render(); }
     else if(a==='ei-del'){ editItems.splice(parseInt(b.dataset.i,10),1); refreshEditBox(); }
     else if(a==='ep-del'){ editParts.splice(parseInt(b.dataset.i,10),1); refreshEditBox(); }
+    else if(a==='ep-add'){ addEditPart(); }
+    else if(a==='edit-to-parts'){ editToParts(); }
+    else if(a==='edit-split-rows'){ splitEditedMeal(); }
     else if(a==='ei-add'){
       const sel=$('#ei-food'), amtEl=$('#ei-add-amt');
       if(badNumberWarning(amtEl)) return;
@@ -2080,9 +2267,7 @@ function wireToday(){
       refreshEditBox();
     }
     else if(a==='edit-save'){
-      // felskrivna tal stoppas här precis som när man lägger till — tidigare blev de tyst 0
-      const numEls = document.querySelectorAll('#edit-kcal, #edit-protein, .ei-amt, .ep-kcal, .ep-protein');
-      for(let k=0;k<numEls.length;k++){ if(badNumberWarning(numEls[k])) return; }
+      if(!editInputsOK()) return;
       const prevProtein = totalsFor(day).protein;
       const id=b.dataset.id, arr=meals[day]||[], idx=arr.findIndex(e=>e.id===id);
       if(idx>=0){
@@ -2091,18 +2276,15 @@ function wireToday(){
         const type = editType || cur.type;
         let patch;
         if(editItems){
-          if(!editItems.length){ toast('Måltiden måste ha minst en ingrediens.', true); return; }
-          for(let k=0;k<editItems.length;k++){ if(!(parseNum(editItems[k].amount)>0)){ toast('Ange en mängd större än 0 på alla ingredienser.', true); return; } }
           const sum = itemsSum(editItems);
           const oldAuto = autoDescFromItems(cur.items||[]);
           const newDesc = (!d || d===oldAuto) ? autoDescFromItems(editItems) : d;
           patch = { items: editItems.map(it=>Object.assign({}, it)), desc:newDesc, type:type, kcal:sum.kcal, protein:sum.protein, up:Date.now() };
         } else if(editParts){
-          if(!editParts.length){ toast('Måltiden måste ha minst en del.', true); return; }
-          const sum = sumParts(editParts);
+          const parts = cleanEditParts(), sum = sumParts(parts);
           const oldAuto = autoDescFromParts(cur.parts||[]);
-          const newDesc = (!d || d===oldAuto) ? autoDescFromParts(editParts) : d;
-          patch = { parts: editParts.map(p=>Object.assign({}, p)), desc:newDesc, type:type, kcal:Math.round(sum.kcal), protein:Math.round(sum.protein), up:Date.now() };
+          const newDesc = (!d || d===oldAuto) ? autoDescFromParts(parts) : d;
+          patch = { parts: parts, desc:newDesc, type:type, kcal:sum.kcal, protein:sum.protein, up:Date.now() };
         } else {
           patch = { desc: d||cur.desc, type:type,
             kcal: Math.max(0,Math.round(parseNum($('#edit-kcal').value)||0)),
@@ -2254,7 +2436,9 @@ function addPart(){
   if(badNumberWarning($('#m-kcal')) || badNumberWarning($('#m-protein'))) return;
   const p = readCurrentPart();
   if(!p){ toast('Skriv vad delen är först.', true); if($('#m-desc')) $('#m-desc').focus(); return; }
-  manualParts.push(p);
+  // en AI-uppskattning av flera saker blir flera delar, inte en klump
+  Array.prototype.push.apply(manualParts, aiParts(p.desc, p.kcal, p.protein) || [p]);
+  aiEst = null;
   render(); // fälten byggs om tomma
   const d = $('#m-desc'); if(d) d.focus();
   saveDraft();
@@ -2285,7 +2469,7 @@ function addMeal(){
   if(manualParts.length){
     if(badNumberWarning($('#m-kcal')) || badNumberWarning($('#m-protein'))) return;
     const cur = readCurrentPart();
-    const parts = cur ? manualParts.concat([cur]) : manualParts.slice();
+    const parts = cur ? manualParts.concat(aiParts(cur.desc, cur.kcal, cur.protein) || [cur]) : manualParts.slice();
     const sum = sumParts(parts);
     const added = { id: uid(), type: mealType, up: Date.now(),
       desc: autoDescFromParts(parts), kcal: sum.kcal, protein: sum.protein, parts: parts.map(function(p){ return Object.assign({}, p); }) };
@@ -2309,6 +2493,9 @@ function addMeal(){
     kcal: Math.max(0, Math.round(parseNum(kcalEl && kcalEl.value)||0)),
     protein: Math.max(0, Math.round(parseNum(protEl && protEl.value)||0))
   };
+  // AI:n delade upp maten — delarna sparas med, skalade till det som står i fälten om man justerat
+  const parts = aiParts(desc, entry.kcal, entry.protein);
+  if(parts) entry.parts = parts;
   meals[day] = (meals[day]||[]).concat(entry);
   save(LS.meals, meals);
   clearDraft();

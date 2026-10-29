@@ -617,6 +617,43 @@ console.log('\n24. Målträff och svit i Trender');
   win.close();
 }
 
+console.log('\n26. En ihopsatt måltid går att dela upp i separata rader igen');
+{
+  const KEBAB = { id:'k1', type:'lunch', desc:'Kebab med ris', kcal:900, protein:40, up:1,
+    parts:[{ desc:'Kebab', kcal:600, protein:34 }, { desc:'Ris', kcal:300, protein:6 }] };
+  const FRUKT = { id:'f1', type:'frukost', desc:'Frukt', kcal:50, protein:1, up:1 };
+  const win = boot({ 'matlogg.meals': { [TODAY]: [FRUKT, KEBAB] } });
+  click(win, q(win, '[data-act="edit-meal"][data-id="k1"]'));
+  const btn = q(win, '[data-act="edit-split-rows"]');
+  check('knappen "Dela upp i 2 separata rader" visas', btn && /2 separata rader/.test(btn.textContent), btn && btn.textContent);
+  const d1 = q(win, '#ep-desc-1');
+  d1.value = 'Ris 1 dl'; d1.dispatchEvent(new win.Event('input'));
+  const k1 = q(win, '#ep-kcal-1');
+  k1.value = '150'; k1.dispatchEvent(new win.Event('input'));
+  click(win, btn);
+  let m = meals(win)[TODAY];
+  check('två rader i stället för en', m.length === 3 && m[1].desc === 'Kebab' && m[2].desc === 'Ris 1 dl', JSON.stringify(m.map(e => e.desc)));
+  check('ändringen före uppdelningen följde med', m[2].kcal === 150 && m[1].kcal === 600 && m[2].type === 'lunch');
+  check('raderna är vanliga rader utan delar', !m[1].parts && !m[2].parts);
+  check('originalet ligger i raderingsloggen', !!JSON.parse(win.localStorage.getItem('matlogg.tombstones')).meals.k1);
+  click(win, q(win, '.toast-undo'));
+  m = meals(win)[TODAY];
+  check('Ångra ger tillbaka den hela måltiden på samma plats', m.length === 2 && m[1].id === 'k1' && m[1].parts.length === 2, JSON.stringify(m.map(e => e.id)));
+  check('de uppdelade raderna raderas vid ångra', !JSON.parse(win.localStorage.getItem('matlogg.tombstones')).meals.k1);
+  win.close();
+}
+{
+  const SKAL = { id:'s1', type:'frukost', desc:'Frukostskål', kcal:255, protein:29, up:1,
+    items:[{ name:'Kvarg (mager)', unit:'g', kcal:60, protein:11, amount:250 }, { name:'Banan', unit:'st', kcal:105, protein:1.3, amount:1 }] };
+  const win = boot({ 'matlogg.meals': { [TODAY]: [SKAL] } });
+  click(win, q(win, '[data-act="edit-meal"]'));
+  click(win, q(win, '[data-act="edit-split-rows"]'));
+  const m = meals(win)[TODAY];
+  check('skafferimåltiden blir en rad per ingrediens', m.length === 2 && /Kvarg/.test(m[0].desc) && /Banan/.test(m[1].desc), JSON.stringify(m.map(e => e.desc)));
+  check('varje rad behåller sin ingrediens (mängden går att ändra)', m[0].items && m[0].items.length === 1 && m[0].kcal === 150);
+  win.close();
+}
+
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 (async function(){
@@ -669,6 +706,98 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     win.fetch = answer({ stop_reason:'refusal', content:[] });
     await win.runEstimate();
     check('en vägran ger begripligt besked', /ville inte/.test(q(win, '#ai-status').textContent), q(win, '#ai-status').textContent);
+    win.close();
+  }
+
+  const aiAnswer = obj => async () => ({ ok:true, json: async () => ({ stop_reason:'end_turn', content:[{ type:'text', text: JSON.stringify(obj) }] }) });
+  const setVal = (win, s, v) => { const el = q(win, s); el.value = v; el.dispatchEvent(new win.Event('input')); };
+
+  console.log('\n27. Delar går att byta namn på och lägga till när man redigerar (utan AI)');
+  {
+    const win = boot({ 'matlogg.meals': { [TODAY]: [{ id:'p1', type:'lunch', desc:'Kebab med ris', kcal:900, protein:40, up:1 }] } });
+    click(win, q(win, '[data-act="edit-meal"]'));
+    check('en vanlig måltid har knappen "Dela upp i delar"', !!q(win, '[data-act="edit-to-parts"]'));
+    await win.editToParts();
+    check('utan AI blir hela måltiden första delen', q(win, '#ep-desc-0') && q(win, '#ep-desc-0').value === 'Kebab med ris' && q(win, '#ep-kcal-0').value === '900');
+    setVal(win, '#ep-desc-0', 'Kebab'); setVal(win, '#ep-kcal-0', '600'); setVal(win, '#ep-protein-0', '34');
+    q(win, '#ep-new-desc').value = 'Ris';
+    click(win, q(win, '[data-act="edit-save"]'));
+    check('en halvskriven ny del stoppar Spara', /Tryck \+/.test(toastText(win)) && !meals(win)[TODAY][0].parts, toastText(win));
+    q(win, '#ep-new-kcal').value = '300'; q(win, '#ep-new-protein').value = '6';
+    await win.addEditPart();
+    check('den nya delen lades till', q(win, '#ep-desc-1') && q(win, '#ep-desc-1').value === 'Ris');
+    check('summan räknas om', /900 kcal/.test(q(win, '#ei-sum').textContent), q(win, '#ei-sum').textContent);
+    click(win, q(win, '[data-act="edit-save"]'));
+    const e = meals(win)[TODAY][0];
+    check('sparad med två delar och eget namn kvar', e.parts && e.parts.length === 2 && e.desc === 'Kebab med ris' && e.kcal === 900 && e.protein === 40, JSON.stringify(e));
+    win.close();
+  }
+
+  console.log('\n28. AI:n delar upp maten när man lägger till — delarna sparas med');
+  {
+    const win = boot({ 'matlogg.apikey':'sk-ant-test', 'matlogg.settings': { addMethod:'ai' } });
+    win.fetch = aiAnswer({ kcal:900, protein:40, parts:[{ desc:'Kebab', kcal:600, protein:34 }, { desc:'Ris, 2 dl kokt', kcal:310, protein:6 }] });
+    q(win, '#m-desc').value = 'kebab med ris';
+    await win.runEstimate();
+    check('totalen blir delarnas summa', q(win, '#m-kcal').value === '910' && q(win, '#m-protein').value === '40', q(win, '#m-kcal').value);
+    check('statusraden visar delarna', /Kebab 600 kcal · Ris, 2 dl kokt 310 kcal/.test(q(win, '#ai-status').textContent), q(win, '#ai-status').textContent);
+    click(win, q(win, '#m-add'));
+    let e = meals(win)[TODAY][0];
+    check('måltiden sparades med delar', e.parts && e.parts.length === 2 && e.desc === 'kebab med ris' && e.kcal === 910, JSON.stringify(e));
+
+    // justerad total: delarna skalas så att de fortfarande summerar rätt
+    q(win, '#m-desc').value = 'kebab med ris';
+    await win.runEstimate();
+    q(win, '#m-kcal').value = '819';
+    click(win, q(win, '#m-add'));
+    e = meals(win)[TODAY][1];
+    check('justerad total: delarna skalas om', e.parts && e.parts[0].kcal + e.parts[1].kcal === 819 && e.kcal === 819 && e.parts[0].kcal === 540, JSON.stringify(e.parts));
+
+    // ändrad beskrivning efter uppskattningen: delarna stämmer inte längre
+    q(win, '#m-desc').value = 'kebab med ris';
+    await win.runEstimate();
+    q(win, '#m-desc').value = 'kebab med pommes';
+    click(win, q(win, '#m-add'));
+    e = meals(win)[TODAY][2];
+    check('ändrad beskrivning: inga gamla delar följer med', !e.parts, JSON.stringify(e));
+
+    // "+ Del" med en uppdelad uppskattning ger två delar, inte en klump
+    q(win, '#m-desc').value = 'kebab med ris';
+    await win.runEstimate();
+    click(win, q(win, '#m-part'));
+    check('"+ Del" lägger in AI:ns delar var för sig', win.eval('manualParts.length') === 2, win.eval('JSON.stringify(manualParts)'));
+
+    // en enda sak blir ingen uppdelning
+    win.eval('manualParts = []; render()');
+    win.fetch = aiAnswer({ kcal:156, protein:13, parts:[{ desc:'2 ägg', kcal:156, protein:13 }] });
+    q(win, '#m-desc').value = '2 ägg';
+    await win.runEstimate();
+    click(win, q(win, '#m-add'));
+    e = meals(win)[TODAY][3];
+    check('en sak: inga delar', e.desc === '2 ägg' && !e.parts, JSON.stringify(e));
+    win.close();
+  }
+
+  console.log('\n29. Dela upp en redan loggad måltid med AI');
+  {
+    const win = boot({ 'matlogg.apikey':'sk-ant-test', 'matlogg.meals': { [TODAY]: [{ id:'p1', type:'lunch', desc:'Kebab med ris', kcal:900, protein:40, up:1 }] } });
+    let sent = null;
+    win.fetch = async (url, opts) => { sent = JSON.parse(opts.body);
+      return aiAnswer({ parts:[{ desc:'Kebab', kcal:620, protein:35 }, { desc:'Ris', kcal:300, protein:6 }] })(); };
+    click(win, q(win, '[data-act="edit-meal"]'));
+    await win.editToParts();
+    check('AI:n fick måltidens total', sent && /900 kcal och 40 g protein/.test(sent.messages[0].content));
+    const kc = [q(win, '#ep-kcal-0').value, q(win, '#ep-kcal-1').value].map(Number), pr = [q(win, '#ep-protein-0').value, q(win, '#ep-protein-1').value].map(Number);
+    check('delarna summerar till den loggade totalen', kc[0]+kc[1] === 900 && pr[0]+pr[1] === 40, kc+' / '+pr);
+    check('beskrivningen står kvar', q(win, '#edit-desc').value === 'Kebab med ris');
+    // ny del där AI:n uppskattar kcal och protein
+    win.fetch = aiAnswer({ kcal:120, protein:1 });
+    q(win, '#ep-new-desc').value = 'vitlökssås';
+    await win.addEditPart();
+    check('ny del med tomma värden uppskattas av AI:n', q(win, '#ep-desc-2') && q(win, '#ep-kcal-2').value === '120');
+    click(win, q(win, '[data-act="edit-split-rows"]'));
+    const m = meals(win)[TODAY];
+    check('och sedan delas upp i tre rader', m.length === 3 && m[2].desc === 'vitlökssås' && m.reduce((a, e) => a+e.kcal, 0) === 1020, JSON.stringify(m.map(e => e.desc+' '+e.kcal)));
     win.close();
   }
 
