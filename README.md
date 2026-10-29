@@ -31,10 +31,13 @@ Android/Chrome: meny → "Installera app" · iPhone/Safari: Dela → "Lägg till
   - Redigera eller ta bort loggade måltider. Borttagningar och tillägg kan **ångras** direkt i
     notisen (i stället för "Är du säker?"-rutor) — fångar också ett råkat dubbeltryck på ett snabbval.
   - **Måltider i delar** – AI:n delar upp det den uppskattar ("kebab med ris" → kebab + ris) och
-    delarna sparas med måltiden. När du redigerar går varje del att döpa om, ändra eller ta bort, och
-    nya delar kan läggas till (med AI påslaget räcker det att skriva namnet). **Dela upp i separata
-    rader** gör om en ihopsatt måltid till en rad per del — motsatsen till "slå ihop", och går att
-    ångra. En äldre måltid utan delar kan delas upp med **Dela upp i delar** (AI:n fördelar totalen).
+    delarna sparas med måltiden. **Finns en del i skafferiet räknar appen med dina värden** — AI:n
+    väljer bara livsmedel och mängd (t.ex. "Ris (okokt) 70 g"), och mängden går att ändra efteråt.
+    Det som inte finns i skafferiet blir en fri del med AI:ns uppskattning. När du redigerar går
+    varje del att döpa om, ändra eller ta bort, och nya delar kan läggas till — skriv namnet (AI:n
+    letar i skafferiet) eller välj direkt ur skafferiet. **Dela upp i separata rader** gör om en
+    ihopsatt måltid till en rad per del — motsatsen till "slå ihop", och går att ångra. En äldre
+    måltid utan delar kan delas upp med **Dela upp i delar**.
 - **Kropp** – registrera vikt och midjemått, se grafer med glidande medel.
 - **Trender** – veckoöversikt (mån–sön med dagens dag markerad) samt snitt och utveckling
   över 7 / 30 / 90 dagar, och **målträff**: hur många av de loggade dagarna protein- och energimålet

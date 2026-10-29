@@ -801,6 +801,109 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     win.close();
   }
 
+  const PANTRY = [
+    { id:'f-ris-ra', name:'Ris (okokt)', unit:'g', kcal:360, protein:6.7 },
+    { id:'f-kebab', name:'Kebabkött', unit:'g', kcal:230, protein:17 },
+    { id:'f-sas', name:'Kebabsås röd', unit:'g', kcal:120, protein:1 }
+  ];
+
+  console.log('\n30. Dela upp med AI använder skafferiets värden');
+  {
+    const win = boot({ 'matlogg.apikey':'sk-ant-test', 'matlogg.foods': PANTRY,
+      'matlogg.meals': { [TODAY]: [{ id:'p1', type:'lunch', desc:'Kebab med ris', kcal:900, protein:40, up:1 }] } });
+    let sent = null;
+    win.fetch = async (url, opts) => { sent = JSON.parse(opts.body); return aiAnswer({ parts:[
+      { desc:'kebabkött', food:'f-kebab', amount:150 }, { desc:'ris', food:'f-ris-ra', amount:70 },
+      { desc:'sås', food:'f-sas', amount:40 }, { desc:'sallad', kcal:20, protein:1 } ] })(); };
+    click(win, q(win, '[data-act="edit-meal"]'));
+    await win.editToParts();
+    check('skafferiet skickades med till AI:n', sent && /f-kebab \| Kebabkött \| 230 kcal, 17 g protein per 100 g/.test(sent.messages[0].content));
+    check('skafferidelarna blev rader med mängd', q(win, '#ei-amt-0') && q(win, '#ei-amt-0').value === '150' && q(win, '#ei-amt-1').value === '70');
+    check('det som inte finns i skafferiet blev en fri del', q(win, '#ep-desc-0') && q(win, '#ep-desc-0').value === 'sallad');
+    check('summan räknas med skafferiets värden', /665 kcal · 32 g/.test(q(win, '#ei-sum').textContent), q(win, '#ei-sum').textContent);
+    check('notisen säger att summan ändrades', /3 från skafferiet/.test(toastText(win)) && /665 kcal \(var 900\)/.test(toastText(win)), toastText(win));
+    setVal(win, '#ei-amt-1', '50');                                   // åt mindre ris
+    check('ändrad mängd räknas om', /593 kcal/.test(q(win, '#ei-sum').textContent), q(win, '#ei-sum').textContent);
+    click(win, q(win, '[data-act="edit-save"]'));
+    let e = meals(win)[TODAY][0];
+    check('sparad med både skafferirader och fri del', e.items && e.items.length === 3 && e.parts && e.parts.length === 1 && e.kcal === 593 && e.desc === 'Kebab med ris', JSON.stringify(e));
+    click(win, q(win, '[data-act="edit-meal"]'));
+    check('redigeringen visar båda sorterna', /Från skafferiet/.test(q(win, '.edit-row').textContent) && !!q(win, '#ei-amt-2') && !!q(win, '#ep-desc-0'));
+    click(win, q(win, '[data-act="edit-split-rows"]'));
+    const m = meals(win)[TODAY];
+    check('delas upp i fyra rader, skafferiraderna behåller mängden', m.length === 4 && m.filter(x => x.items).length === 3 && m.reduce((a, x) => a+x.kcal, 0) === 593, JSON.stringify(m.map(x => x.desc+' '+x.kcal)));
+    win.close();
+  }
+
+  console.log('\n31. AI-uppskattningen i lägg till-kortet räknar med skafferiet');
+  {
+    const win = boot({ 'matlogg.apikey':'sk-ant-test', 'matlogg.settings': { addMethod:'ai' }, 'matlogg.foods': PANTRY });
+    win.fetch = aiAnswer({ kcal:900, protein:40, parts:[{ desc:'kebab', food:'f-kebab', amount:150 }, { desc:'ris', food:'f-ris-ra', amount:70 }] });
+    q(win, '#m-desc').value = 'kebab med ris';
+    await win.runEstimate();
+    check('fälten visar skafferiets summa', q(win, '#m-kcal').value === '597' && q(win, '#m-protein').value === '31', q(win, '#m-kcal').value+' / '+q(win, '#m-protein').value);
+    check('statusraden säger att allt kom från skafferiet', /allt från skafferiet/.test(q(win, '#ai-status').textContent), q(win, '#ai-status').textContent);
+    click(win, q(win, '#m-add'));
+    let e = meals(win)[TODAY][0];
+    check('sparad som skafferirader (mängden går att ändra)', e.items && e.items.length === 2 && !e.parts && e.items[1].amount === 70, JSON.stringify(e));
+
+    q(win, '#m-desc').value = 'kebab med ris';
+    await win.runEstimate();
+    q(win, '#m-kcal').value = '500';
+    click(win, q(win, '#m-add'));
+    e = meals(win)[TODAY][1];
+    check('justerad total: delarna skalas och tappar skafferikopplingen', !e.items && e.parts && e.parts.length === 2 && e.parts[0].kcal + e.parts[1].kcal === 500, JSON.stringify(e));
+
+    win.fetch = aiAnswer({ kcal:450, protein:20, parts:[{ desc:'bröd', food:'finns-inte', amount:100, kcal:250, protein:8 }, { desc:'ris', food:'f-ris-ra', amount:50 }] });
+    q(win, '#m-desc').value = 'bröd och ris';
+    await win.runEstimate();
+    click(win, q(win, '#m-add'));
+    e = meals(win)[TODAY][2];
+    check('okänt skafferi-id blir en vanlig del', e.parts && e.parts[0].desc === 'bröd' && e.parts[0].kcal === 250 && e.items && e.items.length === 1, JSON.stringify(e));
+
+    win.fetch = aiAnswer({ kcal:250, protein:5, parts:[{ desc:'ris', food:'f-ris-ra', amount:70 }] });
+    q(win, '#m-desc').value = '2 dl kokt ris';
+    await win.runEstimate();
+    click(win, q(win, '#m-add'));
+    e = meals(win)[TODAY][3];
+    check('en enda sak ur skafferiet blir en skafferirad', e.items && e.items.length === 1 && e.kcal === 252 && e.desc === '2 dl kokt ris', JSON.stringify(e));
+    win.close();
+  }
+
+  console.log('\n32. Ny del i redigeringen hamnar i skafferiet om den finns där');
+  {
+    const win = boot({ 'matlogg.apikey':'sk-ant-test', 'matlogg.foods': PANTRY,
+      'matlogg.meals': { [TODAY]: [{ id:'p1', type:'lunch', desc:'Kebab, bröd', kcal:700, protein:35, up:1,
+        parts:[{ desc:'Kebab', kcal:450, protein:27 }, { desc:'Bröd', kcal:250, protein:8 }] }] } });
+    click(win, q(win, '[data-act="edit-meal"]'));
+    win.fetch = aiAnswer({ kcal:50, protein:0, parts:[{ desc:'röd sås', food:'f-sas', amount:40 }] });
+    q(win, '#ep-new-desc').value = 'röd sås';
+    await win.addEditPart();
+    check('såsen blev en skafferirad', q(win, '#ei-amt-0') && q(win, '#ei-amt-0').value === '40');
+    q(win, '#ei-food').value = 'f-ris-ra'; q(win, '#ei-add-amt').value = '60';
+    click(win, q(win, '[data-act="ei-add"]'));
+    check('"ur skafferiet" fungerar på en måltid som bara hade fria delar', q(win, '#ei-amt-1') && q(win, '#ei-amt-1').value === '60');
+    click(win, q(win, '[data-act="edit-save"]'));
+    const e = meals(win)[TODAY][0];
+    check('sparad: två fria delar + två skafferirader', e.parts.length === 2 && e.items.length === 2 && e.kcal === 700+48+216, JSON.stringify(e));
+    win.close();
+  }
+
+  console.log('\n33. "Slå ihop" behåller skafferirader och delar');
+  {
+    const win = boot({ 'matlogg.meals': { [TODAY]: [
+      { id:'a', type:'lunch', desc:'Ris (okokt) 70 g', kcal:252, protein:5, up:1, items:[{ name:'Ris (okokt)', unit:'g', kcal:360, protein:6.7, amount:70 }] },
+      { id:'b', type:'lunch', desc:'Kebab, sås', kcal:500, protein:30, up:1, parts:[{ desc:'Kebab', kcal:450, protein:29 }, { desc:'Sås', kcal:50, protein:1 }] },
+      { id:'c', type:'lunch', desc:'Cola', kcal:140, protein:0, up:1 } ] } });
+    click(win, q(win, '[data-act="merge-group"]'));
+    const e = meals(win)[TODAY][0];
+    check('en rad med skafferiraden och alla delar', meals(win)[TODAY].length === 1 && e.items.length === 1 && e.parts.length === 3 && e.kcal === 892, JSON.stringify(e));
+    click(win, q(win, '[data-act="edit-meal"]'));
+    click(win, q(win, '[data-act="edit-split-rows"]'));
+    check('och går att dela upp igen', meals(win)[TODAY].length === 4);
+    win.close();
+  }
+
   console.log('\n' + (fail ? '✗ '+fail+' fel' : '✓ allt gick igenom') + '  ('+pass+' kontroller)');
   process.exit(fail ? 1 : 0);
 })();
